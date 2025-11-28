@@ -25,35 +25,35 @@ import {
   Upload,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { addAppliance } from "../appliances/actions"
 
 type ApplianceData = {
   id: string
   count: number
-  kwh: number
+  watt: number
   alwaysOn: boolean
 }
 
 const applianceTypes = [
-  { id: "ac", name: "Air Conditioner", icon: AirVent, defaultKwh: 2.0 },
-  { id: "fridge", name: "Refrigerator", icon: Refrigerator, defaultKwh: 0.15 },
-  { id: "washer", name: "Washing Machine", icon: WashingMachine, defaultKwh: 0.5 },
-  { id: "tv", name: "Television", icon: Tv, defaultKwh: 0.1 },
-  { id: "pc", name: "Computer/PC", icon: Monitor, defaultKwh: 0.2 },
-  { id: "lights", name: "LED Lights", icon: Lightbulb, defaultKwh: 0.06 },
-  { id: "microwave", name: "Microwave", icon: Microwave, defaultKwh: 1.0 },
-  { id: "fan", name: "Ceiling Fan", icon: Fan, defaultKwh: 0.075 },
+  { id: "ac", name: "Air Conditioner", icon: AirVent, defaultWatt: 2000 },
+  { id: "fridge", name: "Refrigerator", icon: Refrigerator, defaultWatt: 150 },
+  { id: "washer", name: "Washing Machine", icon: WashingMachine, defaultWatt: 500 },
+  { id: "tv", name: "Television", icon: Tv, defaultWatt: 100 },
+  { id: "pc", name: "Computer/PC", icon: Monitor, defaultWatt: 200 },
+  { id: "lights", name: "LED Lights", icon: Lightbulb, defaultWatt: 10 },
+  { id: "microwave", name: "Microwave", icon: Microwave, defaultWatt: 1000 },
+  { id: "fan", name: "Ceiling Fan", icon: Fan, defaultWatt: 75 },
 ]
 
 export default function SetupPage() {
   const router = useRouter()
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
   const [billFile, setBillFile] = useState<File | null>(null)
   const [budgetTarget, setBudgetTarget] = useState([150])
   const [appliances, setAppliances] = useState<Record<string, ApplianceData>>({})
   const [isTouPlan, setIsTouPlan] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const toggleAppliance = (id: string, defaultKwh: number) => {
+  const toggleAppliance = (id: string, defaultWatt: number) => {
     setAppliances((prev) => {
       if (prev[id]) {
         const newState = { ...prev }
@@ -65,7 +65,7 @@ export default function SetupPage() {
           [id]: {
             id,
             count: 1,
-            kwh: defaultKwh,
+            watt: defaultWatt,
             alwaysOn: false,
           },
         }
@@ -89,27 +89,56 @@ export default function SetupPage() {
     }
   }
 
-  const handleComplete = () => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(
-        "powerPulseSetup",
-        JSON.stringify({
-          username,
-          budgetTarget: budgetTarget[0],
-          appliances,
-          touPlan: isTouPlan,
-          billUploaded: !!billFile,
-          completedAt: new Date().toISOString(),
-        }),
-      )
+  const handleComplete = async () => {
+    setIsSubmitting(true)
+    try {
+      // Save appliances to Supabase
+      const promises = Object.values(appliances).map(async (app) => {
+        const formData = new FormData()
+        const type = applianceTypes.find(t => t.id === app.id)
+        formData.append("name", type?.name || app.id)
+        formData.append("quantity", app.count.toString())
+        formData.append("watt", app.watt.toString())
+        return addAppliance(formData)
+      })
+
+      await Promise.all(promises)
+
+      // Save other settings to local storage for now (or update profile if we had fields)
+      if (typeof window !== "undefined") {
+        localStorage.setItem(
+          "powerPulseSetup",
+          JSON.stringify({
+            budgetTarget: budgetTarget[0],
+            touPlan: isTouPlan,
+            billUploaded: !!billFile,
+            completedAt: new Date().toISOString(),
+          }),
+        )
+      }
+      
+      router.push("/dashboard")
+    } catch (error) {
+      console.error("Error saving setup:", error)
+    } finally {
+      setIsSubmitting(false)
     }
-    router.push("/dashboard")
   }
 
-  const isComplete = username && password && Object.keys(appliances).length > 0
+  const isComplete = Object.keys(appliances).length > 0
 
   return (
     <AppShell>
+      {isSubmitting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4">
+             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 animate-bounce-x">
+               <Zap className="h-10 w-10 text-primary fill-current" />
+             </div>
+             <p className="text-lg font-medium animate-pulse">Setting up your profile...</p>
+          </div>
+        </div>
+      )}
       <div className="container max-w-5xl mx-auto px-4 py-8 md:py-12">
         <div className="mb-8 text-center">
           <div className="flex justify-center mb-4">
@@ -119,40 +148,11 @@ export default function SetupPage() {
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-2">Welcome to PowerPulse</h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto text-balance">
-            Create your account and set up your smart energy profile to start saving
+            Set up your smart energy profile to start saving
           </p>
         </div>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Create Account</CardTitle>
-              <CardDescription>Register to start monitoring your energy usage</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input
-                  id="username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Upload Previous Bill</CardTitle>
@@ -232,7 +232,7 @@ export default function SetupPage() {
                   return (
                     <div key={appliance.id} className="space-y-3">
                       <button
-                        onClick={() => toggleAppliance(appliance.id, appliance.defaultKwh)}
+                        onClick={() => toggleAppliance(appliance.id, appliance.defaultWatt)}
                         className={cn(
                           "w-full flex items-center gap-3 p-4 rounded-lg border-2 transition-all text-left",
                           isSelected
@@ -273,17 +273,16 @@ export default function SetupPage() {
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label htmlFor={`${appliance.id}-kwh`} className="text-sm">
-                              Power (kWh)
+                            <Label htmlFor={`${appliance.id}-watt`} className="text-sm">
+                              Power (Watts)
                             </Label>
                             <Input
-                              id={`${appliance.id}-kwh`}
+                              id={`${appliance.id}-watt`}
                               type="number"
-                              step="0.01"
                               min="0"
-                              value={data.kwh}
+                              value={data.watt}
                               onChange={(e) =>
-                                updateApplianceData(appliance.id, "kwh", Number.parseFloat(e.target.value) || 0)
+                                updateApplianceData(appliance.id, "watt", Number.parseFloat(e.target.value) || 0)
                               }
                               className="h-9"
                             />
@@ -337,8 +336,8 @@ export default function SetupPage() {
             </CardContent>
           </Card>
 
-          <Button size="lg" className="w-full" onClick={handleComplete} disabled={!isComplete}>
-            Complete Setup & Go to Dashboard
+          <Button size="lg" className="w-full" onClick={handleComplete} disabled={!isComplete || isSubmitting}>
+            {isSubmitting ? "Saving..." : "Complete Setup & Go to Dashboard"}
           </Button>
         </div>
       </div>

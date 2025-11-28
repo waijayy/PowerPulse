@@ -14,6 +14,7 @@ const OFF_PEAK_RATE = 0.31
 
 type ApplianceData = {
   id: string
+  name: string
   count: number
   kwh: number
   alwaysOn: boolean
@@ -25,36 +26,33 @@ type ApplianceUsage = {
   offPeakHours: number
 }
 
+import { getAppliances } from "../appliances/actions"
+
 export default function AuditPage() {
   const [appliances, setAppliances] = useState<ApplianceData[]>([])
   const [selectedAppliances, setSelectedAppliances] = useState<Set<string>>(new Set())
   const [usageData, setUsageData] = useState<Record<string, ApplianceUsage>>({})
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const setup = localStorage.getItem("powerPulseSetup")
-      if (setup) {
-        const data = JSON.parse(setup)
-        if (data.appliances) {
-          const applianceArray = Object.values(data.appliances) as ApplianceData[]
-          setAppliances(applianceArray)
-        }
-      }
-    }
+    getAppliances().then((data) => {
+        // Map Supabase data to ApplianceData
+        // Supabase returns { id, name, quantity, watt }
+        // AuditPage expects { id, count, kwh, alwaysOn }
+        // We need to map 'watt' to 'kwh' (watt / 1000)
+        const mapped = data.map((app: any) => ({
+            id: app.id.toString(), // Use DB ID as string
+            name: app.name, // Store name to display
+            count: app.quantity,
+            kwh: (app.watt || 0) / 1000,
+            alwaysOn: false // Default for now
+        }))
+        setAppliances(mapped)
+    })
   }, [])
 
   const getApplianceName = (id: string) => {
-    const names: Record<string, string> = {
-      ac: "Air Conditioner",
-      fridge: "Refrigerator",
-      washer: "Washing Machine",
-      tv: "Television",
-      pc: "Computer/PC",
-      lights: "LED Lights",
-      microwave: "Microwave",
-      fan: "Ceiling Fan",
-    }
-    return names[id] || id.replace(/-/g, " ")
+      const app = appliances.find(a => a.id === id)
+      return app?.name || "Unknown Appliance"
   }
 
   const toggleAppliance = (id: string) => {

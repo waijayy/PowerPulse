@@ -1,0 +1,471 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { AppShell } from "@/components/app-shell"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  AirVent,
+  Refrigerator,
+  WashingMachine,
+  Tv,
+  Monitor,
+  Lightbulb,
+  Microwave,
+  Fan,
+  Trash2,
+  Plus,
+  Save,
+  LogOut,
+  Eye,
+  EyeOff,
+  Check,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { updatePassword, updateProfile } from "./actions"
+import { getAppliances, addAppliance, deleteAppliance, updateAppliance } from "../appliances/actions"
+import { signout } from "../auth/actions"
+import { createClient } from "@/utils/supabase/client"
+
+type ApplianceData = {
+  id: number
+  name: string
+  quantity: number
+  watt: number
+  created_at?: string
+  user_id?: string
+}
+
+const applianceTypes = [
+  { id: "ac", name: "Air Conditioner", icon: AirVent, defaultWatt: 2000 },
+  { id: "fridge", name: "Refrigerator", icon: Refrigerator, defaultWatt: 150 },
+  { id: "washer", name: "Washing Machine", icon: WashingMachine, defaultWatt: 500 },
+  { id: "tv", name: "Television", icon: Tv, defaultWatt: 100 },
+  { id: "pc", name: "Computer/PC", icon: Monitor, defaultWatt: 200 },
+  { id: "lights", name: "LED Lights", icon: Lightbulb, defaultWatt: 10 },
+  { id: "microwave", name: "Microwave", icon: Microwave, defaultWatt: 1000 },
+  { id: "fan", name: "Ceiling Fan", icon: Fan, defaultWatt: 75 },
+]
+
+export default function ProfilePage() {
+  const router = useRouter()
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [appliances, setAppliances] = useState<ApplianceData[]>([])
+  const [savedMessage, setSavedMessage] = useState("")
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  
+  // New Appliance Form State
+  const [selectedType, setSelectedType] = useState("")
+  const [newQuantity, setNewQuantity] = useState(1)
+  const [newWatt, setNewWatt] = useState(0)
+
+  useEffect(() => {
+    // Fetch appliances on load
+    getAppliances().then((data) => {
+      setAppliances(data as any)
+    })
+
+    // Fetch user details
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setEmail(user.email || "")
+        // Fetch profile name if stored separately, otherwise use metadata or placeholder
+        // Assuming profile name is fetched or stored in metadata
+      }
+    })
+  }, [])
+
+  const handleSaveProfile = async () => {
+    const formData = new FormData()
+    formData.append("username", name)
+    
+    const result = await updateProfile(formData)
+    
+    if (result.error) {
+      setSavedMessage(result.error)
+    } else {
+      setSavedMessage("Profile saved successfully!")
+    }
+    setTimeout(() => setSavedMessage(""), 3000)
+  }
+
+  const handleChangePassword = async () => {
+    if (!newPassword || !confirmPassword) {
+      setSavedMessage("Please fill in all password fields")
+      setTimeout(() => setSavedMessage(""), 3000)
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setSavedMessage("New passwords do not match")
+      setTimeout(() => setSavedMessage(""), 3000)
+      return
+    }
+
+    const formData = new FormData()
+    formData.append("password", newPassword)
+    formData.append("confirmPassword", confirmPassword)
+
+    const result = await updatePassword(formData)
+
+    if (result.error) {
+      setSavedMessage(result.error)
+    } else {
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+      setSavedMessage("Password changed successfully!")
+    }
+    setTimeout(() => setSavedMessage(""), 3000)
+  }
+
+  const handleLogout = async () => {
+    await signout()
+  }
+
+  const handleAddAppliance = async () => {
+    if (!selectedType) return
+
+    const formData = new FormData()
+    const type = applianceTypes.find(t => t.id === selectedType)
+    formData.append("name", type?.name || "Appliance")
+    formData.append("quantity", newQuantity.toString())
+    formData.append("watt", newWatt.toString())
+    
+    const result = await addAppliance(formData)
+    if (result.success) {
+      const data = await getAppliances()
+      setAppliances(data as any)
+      setIsAddDialogOpen(false)
+      // Reset form
+      setSelectedType("")
+      setNewQuantity(1)
+      setNewWatt(0)
+    }
+  }
+
+  const handleRemoveAppliance = async (id: number) => {
+    const result = await deleteAppliance(id)
+    if (result.success) {
+      setAppliances(appliances.filter((app) => app.id !== id))
+    }
+  }
+
+  const handleUpdateAppliance = async (id: number) => {
+    const app = appliances.find(a => a.id === id)
+    if (app) {
+        const formData = new FormData()
+        formData.append("name", app.name)
+        formData.append("quantity", app.quantity.toString())
+        formData.append("watt", (app.watt || 0).toString())
+        
+        const result = await updateAppliance(id, formData)
+        if (result.success) {
+            setEditingId(null)
+            setSavedMessage("Appliance updated successfully")
+            setTimeout(() => setSavedMessage(""), 3000)
+        }
+    }
+  }
+
+  const toggleEdit = (id: number) => {
+    if (editingId === id) {
+        // Cancel edit
+        setEditingId(null)
+        // Re-fetch to reset changes
+        getAppliances().then((data) => setAppliances(data as any))
+    } else {
+        setEditingId(id)
+    }
+  }
+
+  const updateLocalAppliance = (id: number, field: "quantity" | "watt", value: number) => {
+      setAppliances(appliances.map(app => app.id === id ? { ...app, [field]: value } : app))
+  }
+
+  const getIcon = (name: string) => {
+    const type = applianceTypes.find((t) => name.toLowerCase().includes(t.name.toLowerCase()) || name.toLowerCase().includes(t.id))
+    return type?.icon || Lightbulb
+  }
+
+  return (
+    <AppShell>
+      <div className="container max-w-4xl mx-auto px-4 py-6 md:py-8 space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Profile Settings</h1>
+          <p className="text-muted-foreground mt-1">Manage your account and preferences</p>
+        </div>
+
+        {savedMessage && (
+          <div
+            className={cn(
+              "p-4 rounded-lg border",
+              savedMessage.includes("success")
+                ? "bg-chart-1/10 border-chart-1/20 text-chart-1"
+                : "bg-chart-3/10 border-chart-3/20 text-chart-3",
+            )}
+          >
+            {savedMessage}
+          </div>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Personal Information</CardTitle>
+            <CardDescription>Update your name and basic profile details</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" type="email" value={email} disabled className="bg-muted" />
+              <p className="text-xs text-muted-foreground">Email cannot be changed.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="name">Username</Label>
+              <Input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <Button onClick={handleSaveProfile} className="w-full sm:w-auto">
+              <Save className="h-4 w-4 mr-2" />
+              Save Changes
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Change Password</CardTitle>
+            <CardDescription>Update your password to keep your account secure</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New Password</Label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                >
+                  {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm New Password</Label>
+              <div className="relative">
+                <Input
+                  id="confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                >
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <Button onClick={handleChangePassword} variant="outline" className="w-full sm:w-auto bg-transparent">
+              Update Password
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Electrical Appliances</CardTitle>
+                <CardDescription>Manage your registered appliances</CardDescription>
+              </div>
+              <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+                setIsAddDialogOpen(open)
+                if (!open) {
+                  // Reset form when dialog closes
+                  setSelectedType("")
+                  setNewQuantity(1)
+                  setNewWatt(0)
+                }
+              }}>
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Appliance
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[60%] w-full">
+                  <DialogHeader>
+                    <DialogTitle>Add Appliance</DialogTitle>
+                    <DialogDescription>
+                      Select an appliance type and configure details.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    {!selectedType ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            {applianceTypes.map((type) => (
+                            <Button
+                                key={type.id}
+                                variant="outline"
+                                className="h-24 flex flex-col items-center justify-center gap-2 hover:border-primary hover:bg-primary/5"
+                                onClick={() => {
+                                    setSelectedType(type.id)
+                                    setNewWatt(type.defaultWatt)
+                                }}
+                            >
+                                <type.icon className="h-8 w-8 text-primary" />
+                                <span className="text-xs font-medium">{type.name}</span>
+                            </Button>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="mb-4">
+                                <span className="font-semibold text-lg">{applianceTypes.find(t => t.id === selectedType)?.name}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Quantity</Label>
+                                    <Input type="number" min="1" value={newQuantity} onChange={(e) => setNewQuantity(parseInt(e.target.value) || 1)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Power (Watts)</Label>
+                                    <Input type="number" min="0" value={newWatt} onChange={(e) => setNewWatt(parseFloat(e.target.value) || 0)} />
+                                </div>
+                            </div>
+                            <Button className="w-full" onClick={handleAddAppliance}>Add Appliance</Button>
+                        </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {appliances.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No appliances added yet. Click "Add Appliance" to register your first appliance.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {appliances.map((appliance, index) => {
+                  const Icon = getIcon(appliance.name)
+                  const isEditing = editingId === appliance.id
+                  return (
+                    <div key={appliance.id}>
+                      {index > 0 && <Separator className="mb-4" />}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                              <Icon className="h-5 w-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{appliance.name}</p>
+                              <p className="text-xs text-muted-foreground">ID: {appliance.id}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                              {isEditing ? (
+                                  <>
+                                    <Button size="sm" onClick={() => handleUpdateAppliance(appliance.id)}>Save</Button>
+                                    <Button size="sm" variant="ghost" onClick={() => toggleEdit(appliance.id)}>Cancel</Button>
+                                  </>
+                              ) : (
+                                  <Button size="sm" variant="outline" onClick={() => toggleEdit(appliance.id)}>Edit</Button>
+                              )}
+                              <Button variant="ghost" size="icon" onClick={() => handleRemoveAppliance(appliance.id)}>
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 ml-13">
+                          <div className="space-y-2">
+                            <Label htmlFor={`${appliance.id}-count`} className="text-sm">
+                              Units
+                            </Label>
+                            <Input
+                              id={`${appliance.id}-count`}
+                              type="number"
+                              min="1"
+                              value={appliance.quantity}
+                              disabled={!isEditing}
+                              onChange={(e) =>
+                                updateLocalAppliance(appliance.id, "quantity", Number.parseInt(e.target.value) || 1)
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`${appliance.id}-watt`} className="text-sm">
+                              Power (Watts)
+                            </Label>
+                            <Input
+                              id={`${appliance.id}-watt`}
+                              type="number"
+                              min="0"
+                              value={appliance.watt}
+                              disabled={!isEditing}
+                              onChange={(e) =>
+                                updateLocalAppliance(appliance.id, "watt", Number.parseFloat(e.target.value) || 0)
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle className="text-destructive">Danger Zone</CardTitle>
+            <CardDescription>Logout from your account</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="destructive" onClick={handleLogout} className="w-full sm:w-auto">
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </AppShell>
+  )
+}

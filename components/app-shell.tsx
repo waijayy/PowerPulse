@@ -3,10 +3,18 @@
 import type React from "react"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Zap, LayoutDashboard, Calculator, LineChart, Menu } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { Zap, LayoutDashboard, Calculator, LineChart, Menu, User, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
 const navigation = [
@@ -15,8 +23,18 @@ const navigation = [
   { name: "Insights", href: "/insights", icon: LineChart },
 ]
 
+import { signout } from "@/app/auth/actions"
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
+
+  const handleLogout = async () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("powerPulseSetup")
+    }
+    await signout()
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -51,12 +69,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          {/* User Status */}
           <div className="ml-auto hidden items-center gap-4 md:flex">
-            <div className="text-right">
-              <p className="text-sm font-medium">Welcome, Amirul</p>
-              <p className="text-xs text-muted-foreground">Level 5 Saver</p>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="rounded-full">
+                  <User className="h-5 w-5" />
+                  <span className="sr-only">Open user menu</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => router.push("/profile")}>
+                  <User className="mr-2 h-4 w-4" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* Mobile Menu */}
@@ -69,10 +103,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </SheetTrigger>
             <SheetContent side="right">
               <div className="flex flex-col gap-4 mt-8">
-                <div className="pb-4 border-b border-border">
-                  <p className="text-sm font-medium">Welcome, Amirul</p>
-                  <p className="text-xs text-muted-foreground">Level 5 Saver</p>
-                </div>
                 {navigation.map((item) => {
                   const isActive = pathname === item.href
                   return (
@@ -91,6 +121,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </Link>
                   )
                 })}
+                <div className="pt-4 border-t border-border space-y-2">
+                  <Link
+                    href="/profile"
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                  >
+                    <User className="h-4 w-4" />
+                    Profile
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
               </div>
             </SheetContent>
           </Sheet>

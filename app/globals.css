@@ -148,3 +148,12 @@
 .animate-pulse-eco {
   animation: pulse-eco 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+@keyframes bounce-x {
+  0%, 100% { transform: translateX(-100px); }
+  50% { transform: translateX(100px); }
+}
+
+.animate-bounce-x {
+  animation: bounce-x 2s infinite ease-in-out;
+}
