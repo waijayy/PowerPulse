@@ -340,14 +340,14 @@ export default function ProfilePage() {
                             <Button
                                 key={type.id}
                                 variant="outline"
-                                className="h-24 flex flex-col items-center justify-center gap-2 hover:border-primary hover:bg-primary/5"
+                                className="h-32 flex flex-col items-center justify-center gap-3 hover:border-primary hover:bg-primary/5"
                                 onClick={() => {
                                     setSelectedType(type.id)
                                     setNewWatt(type.defaultWatt)
                                 }}
                             >
-                                <type.icon className="h-8 w-8 text-primary" />
-                                <span className="text-xs font-medium">{type.name}</span>
+                                <type.icon className="h-12 w-12 text-primary" />
+                                <span className="text-sm font-medium">{type.name}</span>
                             </Button>
                             ))}
                         </div>

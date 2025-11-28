@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
+import { LoadingOverlay } from "@/components/loading-overlay"
 import {
   AirVent,
   Refrigerator,
@@ -129,16 +130,7 @@ export default function SetupPage() {
 
   return (
     <AppShell>
-      {isSubmitting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-4">
-             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 animate-bounce-x">
-               <Zap className="h-10 w-10 text-primary fill-current" />
-             </div>
-             <p className="text-lg font-medium animate-pulse">Setting up your profile...</p>
-          </div>
-        </div>
-      )}
+      {isSubmitting && <LoadingOverlay message="Setting up your profile..." />}
       <div className="container max-w-5xl mx-auto px-4 py-8 md:py-12">
         <div className="mb-8 text-center">
           <div className="flex justify-center mb-4">
