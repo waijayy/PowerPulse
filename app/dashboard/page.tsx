@@ -6,8 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { AlertTriangle, TrendingUp, Activity, Clock } from "lucide-react"
-import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from "recharts"
+import { Area, AreaChart, Line, LineChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from "recharts"
 import { cn } from "@/lib/utils"
 
 const generateUsageData = () => {
@@ -19,6 +26,31 @@ const generateUsageData = () => {
       time: time.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
       usage: Math.random() * 3 + 1.5 + (i < 12 ? 1 : 0),
       limit: 4.5,
+    })
+  }
+  return data
+}
+
+// Generate weekly data (last 7 days)
+const generateWeeklyData = () => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  return days.map((day, index) => ({
+    label: day,
+    usage: Math.random() * 6 + 16, // 16-22 kWh
+    target: 20,
+  }))
+}
+
+// Generate monthly data (last 30 days)
+const generateMonthlyData = () => {
+  const data = []
+  const now = new Date()
+  for (let i = 29; i >= 0; i--) {
+    const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
+    data.push({
+      label: `${date.getMonth() + 1}/${date.getDate()}`,
+      usage: Math.random() * 6 + 16, // 16-22 kWh
+      target: 20,
     })
   }
   return data
@@ -36,21 +68,13 @@ const getGridStatus = (): GridStatus => {
   return "healthy"
 }
 
-const weeklyTrend = [
-  { day: "Mon", usage: 18.5, target: 20 },
-  { day: "Tue", usage: 17.2, target: 20 },
-  { day: "Wed", usage: 19.8, target: 20 },
-  { day: "Thu", usage: 16.3, target: 20 },
-  { day: "Fri", usage: 21.5, target: 20 },
-  { day: "Sat", usage: 22.8, target: 20 },
-  { day: "Sun", usage: 20.1, target: 20 },
-]
-
 export default function DashboardPage() {
   const [usageData, setUsageData] = useState(generateUsageData())
   const [gridStatus, setGridStatus] = useState<GridStatus>(getGridStatus())
   const [currentUsage, setCurrentUsage] = useState(85)
   const [budgetTarget, setBudgetTarget] = useState(150)
+  const [viewMode, setViewMode] = useState<"week" | "month">("week")
+  const [trendData, setTrendData] = useState(generateWeeklyData())
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -69,6 +93,15 @@ export default function DashboardPage() {
 
     return () => clearInterval(interval)
   }, [])
+
+  useEffect(() => {
+    // Update trend data when view mode changes
+    if (viewMode === "week") {
+      setTrendData(generateWeeklyData())
+    } else {
+      setTrendData(generateMonthlyData())
+    }
+  }, [viewMode])
 
   const budgetProgress = (currentUsage / budgetTarget) * 100
   const isNearLimit = budgetProgress > 75
@@ -228,33 +261,76 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
+        {/* Usage Trend Line Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>Weekly Usage Trend</CardTitle>
-            <CardDescription>Your daily consumption over the past week</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>{viewMode === "week" ? "Weekly" : "Monthly"} Usage Trend</CardTitle>
+                <CardDescription>
+                  Your daily consumption over the past {viewMode === "week" ? "week" : "month"}
+                </CardDescription>
+              </div>
+              <Select value={viewMode} onValueChange={(value: "week" | "month") => setViewMode(value)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="week">Week</SelectItem>
+                  <SelectItem value="month">Month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {weeklyTrend.map((day, index) => {
-                const isOverTarget = day.usage > day.target
-                const percentage = (day.usage / day.target) * 100
-                return (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium w-12">{day.day}</span>
-                      <span className={cn("font-semibold", isOverTarget ? "text-chart-3" : "text-chart-1")}>
-                        {day.usage} kWh
-                      </span>
-                    </div>
-                    <div className="relative">
-                      <Progress
-                        value={percentage}
-                        className={cn("h-2", isOverTarget ? "[&>div]:bg-chart-3" : "[&>div]:bg-chart-1")}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendData}>
+                  <defs>
+                    <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="rgb(16 185 129)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="rgb(16 185 129)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgb(148 163 184 / 0.2)" />
+                  <XAxis 
+                    dataKey="label" 
+                    stroke="rgb(100 116 139)" 
+                    fontSize={12} 
+                    tickLine={false}
+                    interval={viewMode === "month" ? 4 : 0}
+                  />
+                  <YAxis
+                    stroke="rgb(100 116 139)"
+                    fontSize={12}
+                    tickLine={false}
+                    label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 12 } }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "rgb(255 255 255)",
+                      border: "1px solid rgb(226 232 240)",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <ReferenceLine
+                    y={20}
+                    stroke="rgb(239 68 68)"
+                    strokeDasharray="5 5"
+                    label={{ value: "Target", position: "right", fill: "rgb(239 68 68)", fontSize: 12 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="usage"
+                    stroke="rgb(16 185 129)"
+                    strokeWidth={2}
+                    dot={{ fill: "rgb(16 185 129)", r: 4 }}
+                    activeDot={{ r: 6 }}
+                    name="Usage (kWh)"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
