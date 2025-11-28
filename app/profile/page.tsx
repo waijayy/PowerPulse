@@ -73,6 +73,7 @@ export default function ProfilePage() {
   const [savedMessage, setSavedMessage] = useState("")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [isEditingUsername, setIsEditingUsername] = useState(false)
   
   // New Appliance Form State
   const [selectedType, setSelectedType] = useState("")
@@ -90,8 +91,18 @@ export default function ProfilePage() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         setEmail(user.email || "")
-        // Fetch profile name if stored separately, otherwise use metadata or placeholder
-        // Assuming profile name is fetched or stored in metadata
+        
+        // Fetch username from profiles table
+        supabase
+          .from('profiles')
+          .select('username')
+          .eq('id', user.id)
+          .single()
+          .then(({ data: profile }) => {
+            if (profile?.username) {
+              setName(profile.username)
+            }
+          })
       }
     })
   }, [])
@@ -243,12 +254,61 @@ export default function ProfilePage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="name">Username</Label>
-              <Input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input 
+                id="name" 
+                type="text" 
+                value={name} 
+                onChange={(e) => setName(e.target.value)} 
+                disabled={!isEditingUsername}
+                className={!isEditingUsername ? "bg-muted" : ""}
+              />
             </div>
-            <Button onClick={handleSaveProfile} className="w-full sm:w-auto">
-              <Save className="h-4 w-4 mr-2" />
-              Save Changes
-            </Button>
+            <div className="flex gap-2">
+              {isEditingUsername ? (
+                <>
+                  <Button onClick={async () => {
+                    await handleSaveProfile()
+                    setIsEditingUsername(false)
+                  }} className="w-full sm:w-auto">
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Changes
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => {
+                      setIsEditingUsername(false)
+                      // Reset to original value by re-fetching
+                      const supabase = createClient()
+                      supabase.auth.getUser().then(({ data: { user } }) => {
+                        if (user) {
+                          supabase
+                            .from('profiles')
+                            .select('username')
+                            .eq('id', user.id)
+                            .single()
+                            .then(({ data: profile }) => {
+                              if (profile?.username) {
+                                setName(profile.username)
+                              }
+                            })
+                        }
+                      })
+                    }}
+                    className="w-full sm:w-auto"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsEditingUsername(true)}
+                  className="w-full sm:w-auto"
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
 
