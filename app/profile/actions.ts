@@ -51,3 +51,29 @@ export async function updateProfile(formData: FormData) {
     revalidatePath('/profile')
     return { success: 'Profile updated successfully' }
 }
+
+export async function updateBudget(formData: FormData) {
+    const supabase = await createClient()
+    const monthlyBudgetTarget = parseFloat(formData.get('monthly_budget_target') as string)
+
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) return { error: 'Not authenticated' }
+
+    // Update public.profiles table
+    const { error } = await supabase
+        .from('profiles')
+        .upsert({
+            id: user.id,
+            monthly_budget_target: monthlyBudgetTarget,
+            updated_at: new Date().toISOString(),
+        })
+
+    if (error) {
+        console.error('Error updating budget:', error)
+        return { error: 'Failed to update budget' }
+    }
+
+    revalidatePath('/profile')
+    return { success: 'Budget updated successfully' }
+}

@@ -2,6 +2,7 @@
 create table profiles (
   id uuid references auth.users on delete cascade not null primary key,
   username text,
+  monthly_budget_target numeric default 150,
   updated_at timestamp with time zone
 );
 -- Set up Row Level Security (RLS)

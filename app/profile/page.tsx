@@ -34,7 +34,7 @@ import {
   Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { updatePassword, updateProfile } from "./actions"
+import { updatePassword, updateProfile, updateBudget } from "./actions"
 import { getAppliances, addAppliance, deleteAppliance, updateAppliance } from "../appliances/actions"
 import { signout } from "../auth/actions"
 import { createClient } from "@/utils/supabase/client"
@@ -74,6 +74,8 @@ export default function ProfilePage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isEditingUsername, setIsEditingUsername] = useState(false)
+  const [isEditingBudget, setIsEditingBudget] = useState(false)
+  const [monthlyBudget, setMonthlyBudget] = useState(150)
   
   // New Appliance Form State
   const [selectedType, setSelectedType] = useState("")
@@ -92,15 +94,18 @@ export default function ProfilePage() {
       if (user) {
         setEmail(user.email || "")
         
-        // Fetch username from profiles table
+        // Fetch username and budget from profiles table
         supabase
           .from('profiles')
-          .select('username')
+          .select('username, monthly_budget_target')
           .eq('id', user.id)
           .single()
           .then(({ data: profile }) => {
             if (profile?.username) {
               setName(profile.username)
+            }
+            if (profile?.monthly_budget_target) {
+              setMonthlyBudget(profile.monthly_budget_target)
             }
           })
       }
@@ -147,6 +152,21 @@ export default function ProfilePage() {
       setNewPassword("")
       setConfirmPassword("")
       setSavedMessage("Password changed successfully!")
+    }
+    setTimeout(() => setSavedMessage(""), 3000)
+  }
+
+  const handleSaveBudget = async () => {
+    const formData = new FormData()
+    formData.append("monthly_budget_target", monthlyBudget.toString())
+    
+    const result = await updateBudget(formData)
+    
+    if (result.error) {
+      setSavedMessage(result.error)
+    } else {
+      setSavedMessage("Budget updated successfully!")
+      setIsEditingBudget(false)
     }
     setTimeout(() => setSavedMessage(""), 3000)
   }
@@ -303,6 +323,75 @@ export default function ProfilePage() {
                 <Button 
                   variant="outline" 
                   onClick={() => setIsEditingUsername(true)}
+                  className="w-full sm:w-auto"
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Monthly Budget Target</CardTitle>
+            <CardDescription>Set your target monthly electricity bill</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="budget">Target Amount (RM)</Label>
+              <Input 
+                id="budget" 
+                type="number" 
+                min="50"
+                max="1000"
+                step="10"
+                value={monthlyBudget} 
+                onChange={(e) => setMonthlyBudget(parseFloat(e.target.value) || 150)} 
+                disabled={!isEditingBudget}
+                className={!isEditingBudget ? "bg-muted" : ""}
+              />
+              <p className="text-xs text-muted-foreground">
+                Your current target: RM {monthlyBudget}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {isEditingBudget ? (
+                <>
+                  <Button onClick={handleSaveBudget} className="w-full sm:w-auto">
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Changes
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => {
+                      setIsEditingBudget(false)
+                      // Reset to original value by re-fetching
+                      const supabase = createClient()
+                      supabase.auth.getUser().then(({ data: { user } }) => {
+                        if (user) {
+                          supabase
+                            .from('profiles')
+                            .select('monthly_budget_target')
+                            .eq('id', user.id)
+                            .single()
+                            .then(({ data: profile }) => {
+                              if (profile?.monthly_budget_target) {
+                                setMonthlyBudget(profile.monthly_budget_target)
+                              }
+                            })
+                        }
+                      })
+                    }}
+                    className="w-full sm:w-auto"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsEditingBudget(true)}
                   className="w-full sm:w-auto"
                 >
                   Edit

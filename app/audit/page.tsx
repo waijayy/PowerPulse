@@ -8,9 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Lightbulb, TrendingDown, Clock, Info } from "lucide-react"
-
-const PEAK_RATE = 0.57
-const OFF_PEAK_RATE = 0.31
+import { getApplicableRate, senToRM } from "@/constants/electricity-rates"
 
 type ApplianceData = {
   id: string
@@ -95,19 +93,30 @@ export default function AuditPage() {
 
     const monthlyPeakKwh = dailyPeakKwh * 30
     const monthlyOffPeakKwh = dailyOffPeakKwh * 30
+    const totalMonthlyKwh = monthlyPeakKwh + monthlyOffPeakKwh
 
-    const peakCost = monthlyPeakKwh * PEAK_RATE
-    const offPeakCost = monthlyOffPeakKwh * OFF_PEAK_RATE
+    // Get applicable rate based on total monthly usage
+    const rate = getApplicableRate(totalMonthlyKwh)
+    
+    // Calculate costs in RM
+    const peakCost = monthlyPeakKwh * senToRM(rate.peak)
+    const offPeakCost = monthlyOffPeakKwh * senToRM(rate.offPeak)
     const totalCost = peakCost + offPeakCost
 
     // Calculate potential if all hours were peak
-    const allPeakCost = appliance.kwh * usage.dailyHours * appliance.count * 30 * PEAK_RATE
+    const allPeakCost = totalMonthlyKwh * senToRM(rate.peak)
     const potentialSavings = allPeakCost - totalCost
 
     return {
       name: getApplianceName(applianceId),
       totalCost: totalCost.toFixed(2),
-      monthlyKwh: (monthlyPeakKwh + monthlyOffPeakKwh).toFixed(2),
+      monthlyKwh: totalMonthlyKwh.toFixed(2),
+      monthlyPeakKwh: monthlyPeakKwh.toFixed(2),
+      monthlyOffPeakKwh: monthlyOffPeakKwh.toFixed(2),
+      peakHours: peakHours.toFixed(1),
+      offPeakHours: offPeakHours.toFixed(1),
+      peakRate: senToRM(rate.peak).toFixed(4),
+      offPeakRate: senToRM(rate.offPeak).toFixed(4),
       peakCost: peakCost.toFixed(2),
       offPeakCost: offPeakCost.toFixed(2),
       potentialSavings: potentialSavings.toFixed(2),
@@ -278,9 +287,24 @@ export default function AuditPage() {
                         <Card key={id} className="bg-muted/30">
                           <CardContent className="p-4">
                             <p className="text-xs text-muted-foreground mb-1">Subtotal</p>
-                            <p className="font-semibold text-sm mb-1">{getApplianceName(id)}</p>
+                            <p className="font-semibold text-sm mb-2">{getApplianceName(id)}</p>
                             {subtotal ? (
-                              <p className="text-lg font-bold text-primary">RM {subtotal.totalCost}</p>
+                              <>
+                                <p className="text-lg font-bold text-primary mb-3">RM {subtotal.totalCost}</p>
+                                <div className="space-y-1 text-xs text-muted-foreground border-t pt-2">
+                                  <div className="flex justify-between">
+                                    <span>Peak: {subtotal.monthlyPeakKwh} kWh × RM{subtotal.peakRate}</span>
+                                    <span className="font-medium">RM {subtotal.peakCost}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span>Off-Peak: {subtotal.monthlyOffPeakKwh} kWh × RM{subtotal.offPeakRate}</span>
+                                    <span className="font-medium">RM {subtotal.offPeakCost}</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs pt-1 border-t">
+                                    <span>({subtotal.peakHours}h peak + {subtotal.offPeakHours}h off-peak daily)</span>
+                                  </div>
+                                </div>
+                              </>
                             ) : (
                               <p className="text-sm text-muted-foreground">Enter hours</p>
                             )}
@@ -339,18 +363,18 @@ export default function AuditPage() {
                         </div>
 
                         <div className="bg-background rounded-lg p-4 space-y-3">
-                          <p className="text-sm font-semibold">Rate Comparison:</p>
+                          <p className="text-sm font-semibold">TNB Tariff Rates:</p>
                           <div className="space-y-2">
                             <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Peak Rate (8 AM - 10 PM)</span>
-                              <span className="font-semibold">RM {PEAK_RATE}/kWh</span>
+                              <span className="text-muted-foreground">Peak Rate</span>
+                              <span className="font-semibold">RM 0.2852/kWh (≤1500 kWh) | RM 0.3852/kWh (&gt;1500 kWh)</span>
                             </div>
                             <div className="flex items-center justify-between text-sm text-chart-1">
                               <span className="flex items-center gap-1">
                                 <TrendingDown className="h-4 w-4" />
                                 Off-Peak Rate
                               </span>
-                              <span className="font-semibold">RM {OFF_PEAK_RATE}/kWh</span>
+                              <span className="font-semibold">RM 0.2443/kWh (≤1500 kWh) | RM 0.3443/kWh (&gt;1500 kWh)</span>
                             </div>
                           </div>
                         </div>
