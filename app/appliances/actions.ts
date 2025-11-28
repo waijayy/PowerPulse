@@ -3,6 +3,8 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 
+import { calculateUsageBreakdown } from '@/utils/usage-calculations'
+
 export async function getAppliances() {
     const supabase = await createClient()
     const { data: appliances, error } = await supabase
@@ -25,6 +27,25 @@ export async function addAppliance(formData: FormData) {
     const quantity = parseInt(formData.get('quantity') as string)
     const watt = parseFloat(formData.get('watt') as string) || 0
 
+    const startTime = formData.get('usage_start_time') as string
+    const endTime = formData.get('usage_end_time') as string
+
+    let daily_usage_hours = 0
+    let peak_usage_hours = 0
+    let off_peak_usage_hours = 0
+
+    if (startTime && endTime) {
+        const breakdown = calculateUsageBreakdown(startTime, endTime)
+        daily_usage_hours = breakdown.dailyUsage
+        peak_usage_hours = breakdown.peakUsage
+        off_peak_usage_hours = breakdown.offPeakUsage
+    } else {
+        // Fallback to manual input if provided (legacy support)
+        daily_usage_hours = parseFloat(formData.get('daily_usage_hours') as string) || 0
+        peak_usage_hours = parseFloat(formData.get('peak_usage_hours') as string) || 0
+        off_peak_usage_hours = parseFloat(formData.get('off_peak_usage_hours') as string) || 0
+    }
+
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
@@ -40,6 +61,11 @@ export async function addAppliance(formData: FormData) {
             name,
             quantity,
             watt,
+            daily_usage_hours,
+            peak_usage_hours,
+            off_peak_usage_hours,
+            usage_start_time: startTime || null,
+            usage_end_time: endTime || null,
             user_id: user.id,
         })
 
@@ -58,9 +84,21 @@ export async function updateAppliance(id: number, formData: FormData) {
     const quantity = parseInt(formData.get('quantity') as string)
     const watt = parseFloat(formData.get('watt') as string)
 
+    const startTime = formData.get('usage_start_time') as string
+    const endTime = formData.get('usage_end_time') as string
+
     const updateData: any = { name, quantity }
     if (!isNaN(watt)) {
         updateData.watt = watt
+    }
+
+    if (startTime && endTime) {
+        const breakdown = calculateUsageBreakdown(startTime, endTime)
+        updateData.daily_usage_hours = breakdown.dailyUsage
+        updateData.peak_usage_hours = breakdown.peakUsage
+        updateData.off_peak_usage_hours = breakdown.offPeakUsage
+        updateData.usage_start_time = startTime
+        updateData.usage_end_time = endTime
     }
 
     const { error } = await supabase

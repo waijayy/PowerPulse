@@ -52,20 +52,19 @@ export async function updateProfile(formData: FormData) {
     return { success: 'Profile updated successfully' }
 }
 
-export async function updateBudget(formData: FormData) {
+export async function updateBudget(budget: number) {
     const supabase = await createClient()
-    const monthlyBudgetTarget = parseFloat(formData.get('monthly_budget_target') as string)
-
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) return { error: 'Not authenticated' }
+    if (!user) {
+        return { error: 'User not logged in' }
+    }
 
-    // Update public.profiles table
     const { error } = await supabase
         .from('profiles')
         .upsert({
             id: user.id,
-            monthly_budget_target: monthlyBudgetTarget,
+            monthly_budget_target: budget,
             updated_at: new Date().toISOString(),
         })
 
@@ -75,5 +74,31 @@ export async function updateBudget(formData: FormData) {
     }
 
     revalidatePath('/profile')
-    return { success: 'Budget updated successfully' }
+    return { success: true }
+}
+
+export async function updateProfileBill(amount: number, kwh: number) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: 'User not logged in' }
+    }
+
+    const { error } = await supabase
+        .from('profiles')
+        .upsert({
+            id: user.id,
+            total_bill_amount: amount,
+            total_kwh_usage: kwh,
+            updated_at: new Date().toISOString(),
+        })
+
+    if (error) {
+        console.error('Error updating bill details:', error)
+        return { error: 'Failed to update bill details' }
+    }
+
+    revalidatePath('/profile')
+    return { success: true }
 }

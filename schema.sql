@@ -3,14 +3,20 @@ create table profiles (
   id uuid references auth.users on delete cascade not null primary key,
   username text,
   monthly_budget_target numeric default 150,
+  total_bill_amount numeric default 0,
+  total_kwh_usage numeric default 0,
   updated_at timestamp with time zone
 );
+
 -- Set up Row Level Security (RLS)
 alter table profiles enable row level security;
+
 create policy "Public profiles are viewable by everyone." on profiles
   for select using (true);
+
 create policy "Users can insert their own profile." on profiles
   for insert with check ((select auth.uid()) = id);
+
 create policy "Users can update own profile." on profiles
   for update using ((select auth.uid()) = id);
 
@@ -21,15 +27,25 @@ create table appliances (
   name text not null,
   quantity integer default 1,
   watt numeric default 0,
+  daily_usage_hours numeric default 0,
+  peak_usage_hours numeric default 0,
+  off_peak_usage_hours numeric default 0,
+  usage_start_time time,
+  usage_end_time time,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
--- Set up RLS
+
+-- Set up Row Level Security (RLS) for appliances
 alter table appliances enable row level security;
+
 create policy "Individuals can view their own appliances." on appliances
   for select using ((select auth.uid()) = user_id);
-create policy "Individuals can create their own appliances." on appliances
+
+create policy "Individuals can insert their own appliances." on appliances
   for insert with check ((select auth.uid()) = user_id);
+
 create policy "Individuals can update their own appliances." on appliances
   for update using ((select auth.uid()) = user_id);
+
 create policy "Individuals can delete their own appliances." on appliances
   for delete using ((select auth.uid()) = user_id);

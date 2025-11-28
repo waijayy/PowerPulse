@@ -34,16 +34,22 @@ import {
   Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { updatePassword, updateProfile, updateBudget } from "./actions"
+import { updatePassword, updateProfile, updateBudget, updateProfileBill } from "./actions"
 import { getAppliances, addAppliance, deleteAppliance, updateAppliance } from "../appliances/actions"
 import { signout } from "../auth/actions"
 import { createClient } from "@/utils/supabase/client"
+import { calculateUsageBreakdown } from "@/utils/usage-calculations"
 
 type ApplianceData = {
   id: number
   name: string
   quantity: number
   watt: number
+  usage_start_time?: string
+  usage_end_time?: string
+  daily_usage_hours?: number
+  peak_usage_hours?: number
+  off_peak_usage_hours?: number
   created_at?: string
   user_id?: string
 }
@@ -77,10 +83,17 @@ export default function ProfilePage() {
   const [isEditingBudget, setIsEditingBudget] = useState(false)
   const [monthlyBudget, setMonthlyBudget] = useState(150)
   
+  // Bill Details State
+  const [billAmount, setBillAmount] = useState(0)
+  const [billKwh, setBillKwh] = useState(0)
+  const [isEditingBill, setIsEditingBill] = useState(false)
+  
   // New Appliance Form State
   const [selectedType, setSelectedType] = useState("")
   const [newQuantity, setNewQuantity] = useState(1)
   const [newWatt, setNewWatt] = useState(0)
+  const [newStartTime, setNewStartTime] = useState("18:00")
+  const [newEndTime, setNewEndTime] = useState("22:00")
 
   useEffect(() => {
     // Fetch appliances on load
@@ -94,18 +107,18 @@ export default function ProfilePage() {
       if (user) {
         setEmail(user.email || "")
         
-        // Fetch username and budget from profiles table
+        // Fetch profile data
         supabase
           .from('profiles')
-          .select('username, monthly_budget_target')
+          .select('username, monthly_budget_target, total_bill_amount, total_kwh_usage')
           .eq('id', user.id)
           .single()
           .then(({ data: profile }) => {
-            if (profile?.username) {
-              setName(profile.username)
-            }
-            if (profile?.monthly_budget_target) {
-              setMonthlyBudget(profile.monthly_budget_target)
+            if (profile) {
+              if (profile.username) setName(profile.username)
+              if (profile.monthly_budget_target) setMonthlyBudget(profile.monthly_budget_target)
+              if (profile.total_bill_amount) setBillAmount(profile.total_bill_amount)
+              if (profile.total_kwh_usage) setBillKwh(profile.total_kwh_usage)
             }
           })
       }
@@ -122,6 +135,7 @@ export default function ProfilePage() {
       setSavedMessage(result.error)
     } else {
       setSavedMessage("Profile saved successfully!")
+      setIsEditingUsername(false)
     }
     setTimeout(() => setSavedMessage(""), 3000)
   }
@@ -157,16 +171,26 @@ export default function ProfilePage() {
   }
 
   const handleSaveBudget = async () => {
-    const formData = new FormData()
-    formData.append("monthly_budget_target", monthlyBudget.toString())
-    
-    const result = await updateBudget(formData)
+    const result = await updateBudget(monthlyBudget)
     
     if (result.error) {
       setSavedMessage(result.error)
     } else {
       setSavedMessage("Budget updated successfully!")
       setIsEditingBudget(false)
+    }
+    setTimeout(() => setSavedMessage(""), 3000)
+  }
+
+
+  const handleSaveBill = async () => {
+    const result = await updateProfileBill(billAmount, billKwh)
+    
+    if (result.error) {
+      setSavedMessage(result.error)
+    } else {
+      setSavedMessage("Bill details updated successfully!")
+      setIsEditingBill(false)
     }
     setTimeout(() => setSavedMessage(""), 3000)
   }
@@ -183,6 +207,8 @@ export default function ProfilePage() {
     formData.append("name", type?.name || "Appliance")
     formData.append("quantity", newQuantity.toString())
     formData.append("watt", newWatt.toString())
+    formData.append("usage_start_time", newStartTime)
+    formData.append("usage_end_time", newEndTime)
     
     const result = await addAppliance(formData)
     if (result.success) {
@@ -193,6 +219,8 @@ export default function ProfilePage() {
       setSelectedType("")
       setNewQuantity(1)
       setNewWatt(0)
+      setNewStartTime("18:00")
+      setNewEndTime("22:00")
     }
   }
 
@@ -210,11 +238,15 @@ export default function ProfilePage() {
         formData.append("name", app.name)
         formData.append("quantity", app.quantity.toString())
         formData.append("watt", (app.watt || 0).toString())
+        if (app.usage_start_time) formData.append("usage_start_time", app.usage_start_time)
+        if (app.usage_end_time) formData.append("usage_end_time", app.usage_end_time)
         
         const result = await updateAppliance(id, formData)
         if (result.success) {
             setEditingId(null)
             setSavedMessage("Appliance updated successfully")
+            // Refresh list to get calculated values
+            getAppliances().then((data) => setAppliances(data as any))
             setTimeout(() => setSavedMessage(""), 3000)
         }
     }
@@ -231,8 +263,25 @@ export default function ProfilePage() {
     }
   }
 
-  const updateLocalAppliance = (id: number, field: "quantity" | "watt", value: number) => {
-      setAppliances(appliances.map(app => app.id === id ? { ...app, [field]: value } : app))
+  const updateLocalAppliance = (id: number, field: keyof ApplianceData, value: any) => {
+      setAppliances(appliances.map(app => {
+          if (app.id === id) {
+              const updatedApp = { ...app, [field]: value }
+              // Recalculate breakdown if time changes
+              if (field === 'usage_start_time' || field === 'usage_end_time') {
+                  const start = field === 'usage_start_time' ? value : app.usage_start_time
+                  const end = field === 'usage_end_time' ? value : app.usage_end_time
+                  if (start && end) {
+                      const breakdown = calculateUsageBreakdown(start, end)
+                      updatedApp.daily_usage_hours = breakdown.dailyUsage
+                      updatedApp.peak_usage_hours = breakdown.peakUsage
+                      updatedApp.off_peak_usage_hours = breakdown.offPeakUsage
+                  }
+              }
+              return updatedApp
+          }
+          return app
+      }))
   }
 
   const getIcon = (name: string) => {
@@ -403,6 +452,87 @@ export default function ProfilePage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Bill Details</CardTitle>
+            <CardDescription>Update your latest electricity bill information</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="billAmount">Total Bill Amount (RM)</Label>
+                <Input 
+                  id="billAmount" 
+                  type="number" 
+                  min="0"
+                  step="0.01"
+                  value={billAmount} 
+                  onChange={(e) => setBillAmount(parseFloat(e.target.value) || 0)} 
+                  disabled={!isEditingBill}
+                  className={!isEditingBill ? "bg-muted" : ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="billKwh">Total Usage (kWh)</Label>
+                <Input 
+                  id="billKwh" 
+                  type="number" 
+                  min="0"
+                  value={billKwh} 
+                  onChange={(e) => setBillKwh(parseFloat(e.target.value) || 0)} 
+                  disabled={!isEditingBill}
+                  className={!isEditingBill ? "bg-muted" : ""}
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-2">
+              {isEditingBill ? (
+                <>
+                  <Button onClick={handleSaveBill} className="w-full sm:w-auto">
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Changes
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => {
+                      setIsEditingBill(false)
+                      // Reset to original value by re-fetching
+                      const supabase = createClient()
+                      supabase.auth.getUser().then(({ data: { user } }) => {
+                        if (user) {
+                          supabase
+                            .from('profiles')
+                            .select('total_bill_amount, total_kwh_usage')
+                            .eq('id', user.id)
+                            .single()
+                            .then(({ data: profile }) => {
+                              if (profile) {
+                                setBillAmount(profile.total_bill_amount || 0)
+                                setBillKwh(profile.total_kwh_usage || 0)
+                              }
+                            })
+                        }
+                      })
+                    }}
+                    className="w-full sm:w-auto"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsEditingBill(true)}
+                  className="w-full sm:w-auto"
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Change Password</CardTitle>
             <CardDescription>Update your password to keep your account secure</CardDescription>
           </CardHeader>
@@ -467,6 +597,8 @@ export default function ProfilePage() {
                   setSelectedType("")
                   setNewQuantity(1)
                   setNewWatt(0)
+                  setNewStartTime("18:00")
+                  setNewEndTime("22:00")
                 }
               }}>
                 <DialogTrigger asChild>
@@ -513,6 +645,16 @@ export default function ProfilePage() {
                                 <div className="space-y-2">
                                     <Label>Power (Watts)</Label>
                                     <Input type="number" min="0" value={newWatt} onChange={(e) => setNewWatt(parseFloat(e.target.value) || 0)} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Start Time</Label>
+                                    <Input type="time" value={newStartTime} onChange={(e) => setNewStartTime(e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>End Time</Label>
+                                    <Input type="time" value={newEndTime} onChange={(e) => setNewEndTime(e.target.value)} />
                                 </div>
                             </div>
                             <Button className="w-full" onClick={handleAddAppliance}>Add Appliance</Button>
@@ -592,6 +734,54 @@ export default function ProfilePage() {
                               }
                             />
                           </div>
+                        </div>
+                        
+                        {/* Time Range Inputs */}
+                        <div className="grid grid-cols-2 gap-4 ml-13 mt-2">
+                          <div className="space-y-2">
+                            <Label htmlFor={`${appliance.id}-start`} className="text-sm">
+                              Start Time
+                            </Label>
+                            <Input
+                              id={`${appliance.id}-start`}
+                              type="time"
+                              value={appliance.usage_start_time || ""}
+                              disabled={!isEditing}
+                              onChange={(e) =>
+                                updateLocalAppliance(appliance.id, "usage_start_time", e.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`${appliance.id}-end`} className="text-sm">
+                              End Time
+                            </Label>
+                            <Input
+                              id={`${appliance.id}-end`}
+                              type="time"
+                              value={appliance.usage_end_time || ""}
+                              disabled={!isEditing}
+                              onChange={(e) =>
+                                updateLocalAppliance(appliance.id, "usage_end_time", e.target.value)
+                              }
+                            />
+                          </div>
+                        </div>
+                        
+                        {/* Calculated Breakdown Display */}
+                        <div className="ml-13 mt-2 p-2 bg-muted/30 rounded text-xs flex gap-4">
+                            <div>
+                                <span className="text-muted-foreground">Daily: </span>
+                                <span className="font-medium">{appliance.daily_usage_hours?.toFixed(2) || 0}h</span>
+                            </div>
+                            <div>
+                                <span className="text-muted-foreground">Peak: </span>
+                                <span className="font-medium text-chart-3">{appliance.peak_usage_hours?.toFixed(2) || 0}h</span>
+                            </div>
+                            <div>
+                                <span className="text-muted-foreground">Off-Peak: </span>
+                                <span className="font-medium text-chart-1">{appliance.off_peak_usage_hours?.toFixed(2) || 0}h</span>
+                            </div>
                         </div>
                       </div>
                     </div>

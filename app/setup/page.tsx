@@ -24,15 +24,19 @@ import {
   Fan,
   Zap,
   Upload,
+  Clock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { addAppliance } from "../appliances/actions"
+import { calculateUsageBreakdown } from "@/utils/usage-calculations"
 
 type ApplianceData = {
   id: string
   count: number
   watt: number
   alwaysOn: boolean
+  startTime: string
+  endTime: string
 }
 
 const applianceTypes = [
@@ -48,7 +52,8 @@ const applianceTypes = [
 
 export default function SetupPage() {
   const router = useRouter()
-  const [billFile, setBillFile] = useState<File | null>(null)
+  const [billAmount, setBillAmount] = useState("")
+  const [billKwh, setBillKwh] = useState("")
   const [budgetTarget, setBudgetTarget] = useState([150])
   const [appliances, setAppliances] = useState<Record<string, ApplianceData>>({})
   const [isTouPlan, setIsTouPlan] = useState(false)
@@ -68,13 +73,15 @@ export default function SetupPage() {
             count: 1,
             watt: defaultWatt,
             alwaysOn: false,
+            startTime: "18:00",
+            endTime: "22:00",
           },
         }
       }
     })
   }
 
-  const updateApplianceData = (id: string, field: keyof ApplianceData, value: number | boolean) => {
+  const updateApplianceData = (id: string, field: string, value: number | boolean | string) => {
     setAppliances((prev) => ({
       ...prev,
       [id]: {
@@ -82,12 +89,6 @@ export default function SetupPage() {
         [field]: value,
       },
     }))
-  }
-
-  const handleBillUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setBillFile(e.target.files[0])
-    }
   }
 
   const handleComplete = async () => {
@@ -100,6 +101,15 @@ export default function SetupPage() {
         formData.append("name", type?.name || app.id)
         formData.append("quantity", app.count.toString())
         formData.append("watt", app.watt.toString())
+        formData.append("usage_start_time", app.startTime)
+        formData.append("usage_end_time", app.endTime)
+        
+        // Calculate usage for fallback/legacy support (though server handles it too)
+        const breakdown = calculateUsageBreakdown(app.startTime, app.endTime)
+        formData.append("daily_usage_hours", breakdown.dailyUsage.toString())
+        formData.append("peak_usage_hours", breakdown.peakUsage.toString())
+        formData.append("off_peak_usage_hours", breakdown.offPeakUsage.toString())
+        
         return addAppliance(formData)
       })
 
@@ -112,7 +122,8 @@ export default function SetupPage() {
           JSON.stringify({
             budgetTarget: budgetTarget[0],
             touPlan: isTouPlan,
-            billUploaded: !!billFile,
+            billAmount: billAmount,
+            billKwh: billKwh,
             completedAt: new Date().toISOString(),
           }),
         )
@@ -126,7 +137,7 @@ export default function SetupPage() {
     }
   }
 
-  const isComplete = Object.keys(appliances).length > 0
+  const isComplete = Object.keys(appliances).length > 0 && billAmount !== "" && billKwh !== ""
 
   return (
     <AppShell>
@@ -147,33 +158,34 @@ export default function SetupPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Upload Previous Bill</CardTitle>
-              <CardDescription>Upload your electricity bill from 3 months ago for better analysis</CardDescription>
+              <CardTitle>Previous Bill Details</CardTitle>
+              <CardDescription>Enter details from your latest electricity bill for accurate analysis</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="bill-amount">Total Bill Amount (RM)</Label>
                   <Input
-                    id="bill-upload"
-                    type="file"
-                    onChange={handleBillUpload}
-                    accept=".pdf,.jpg,.jpeg,.png"
-                    className="hidden"
+                    id="bill-amount"
+                    type="number"
+                    placeholder="e.g. 150.50"
+                    value={billAmount}
+                    onChange={(e) => setBillAmount(e.target.value)}
+                    min="0"
+                    step="0.01"
                   />
-                  <Label
-                    htmlFor="bill-upload"
-                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md cursor-pointer hover:bg-primary/90 transition-colors"
-                  >
-                    <Upload className="h-4 w-4" />
-                    Choose File
-                  </Label>
-                  {billFile && (
-                    <span className="text-sm text-muted-foreground">
-                      {billFile.name} ({(billFile.size / 1024).toFixed(1)} KB)
-                    </span>
-                  )}
                 </div>
-                {!billFile && <p className="text-xs text-muted-foreground">Accepts PDF, JPG, or PNG files</p>}
+                <div className="space-y-2">
+                  <Label htmlFor="bill-kwh">Total Usage (kWh)</Label>
+                  <Input
+                    id="bill-kwh"
+                    type="number"
+                    placeholder="e.g. 450"
+                    value={billKwh}
+                    onChange={(e) => setBillKwh(e.target.value)}
+                    min="0"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -220,6 +232,11 @@ export default function SetupPage() {
                   const isSelected = !!appliances[appliance.id]
                   const Icon = appliance.icon
                   const data = appliances[appliance.id]
+                  
+                  // Calculate breakdown for display
+                  const breakdown = isSelected 
+                    ? calculateUsageBreakdown(data.startTime, data.endTime)
+                    : { dailyUsage: 0, peakUsage: 0, offPeakUsage: 0 }
 
                   return (
                     <div key={appliance.id} className="space-y-3">
@@ -248,39 +265,90 @@ export default function SetupPage() {
                       </button>
 
                       {isSelected && (
-                        <div className="ml-10 grid grid-cols-1 md:grid-cols-3 gap-4 pb-2">
-                          <div className="space-y-2">
-                            <Label htmlFor={`${appliance.id}-count`} className="text-sm">
-                              Number of Units
-                            </Label>
-                            <Input
-                              id={`${appliance.id}-count`}
-                              type="number"
-                              min="1"
-                              value={data.count}
-                              onChange={(e) =>
-                                updateApplianceData(appliance.id, "count", Number.parseInt(e.target.value) || 1)
-                              }
-                              className="h-9"
-                            />
+                        <div className="ml-10 space-y-4 pb-2">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor={`${appliance.id}-count`} className="text-sm">
+                                Number of Units
+                              </Label>
+                              <Input
+                                id={`${appliance.id}-count`}
+                                type="number"
+                                min="1"
+                                value={data.count}
+                                onChange={(e) =>
+                                  updateApplianceData(appliance.id, "count", Number.parseInt(e.target.value) || 1)
+                                }
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor={`${appliance.id}-watt`} className="text-sm">
+                                Power (Watts)
+                              </Label>
+                              <Input
+                                id={`${appliance.id}-watt`}
+                                type="number"
+                                min="0"
+                                value={data.watt}
+                                onChange={(e) =>
+                                  updateApplianceData(appliance.id, "watt", Number.parseFloat(e.target.value) || 0)
+                                }
+                                className="h-9"
+                              />
+                            </div>
                           </div>
-                          <div className="space-y-2">
-                            <Label htmlFor={`${appliance.id}-watt`} className="text-sm">
-                              Power (Watts)
-                            </Label>
-                            <Input
-                              id={`${appliance.id}-watt`}
-                              type="number"
-                              min="0"
-                              value={data.watt}
-                              onChange={(e) =>
-                                updateApplianceData(appliance.id, "watt", Number.parseFloat(e.target.value) || 0)
-                              }
-                              className="h-9"
-                            />
+                          
+                          <div className="space-y-3 border rounded-lg p-3 bg-muted/30">
+                            <div className="flex items-center gap-2 text-sm font-medium">
+                              <Clock className="h-4 w-4 text-primary" />
+                              Usage Schedule
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label htmlFor={`${appliance.id}-start`} className="text-xs text-muted-foreground">
+                                  Start Time
+                                </Label>
+                                <Input
+                                  id={`${appliance.id}-start`}
+                                  type="time"
+                                  value={data.startTime}
+                                  onChange={(e) => updateApplianceData(appliance.id, "startTime", e.target.value)}
+                                  className="h-8"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor={`${appliance.id}-end`} className="text-xs text-muted-foreground">
+                                  End Time
+                                </Label>
+                                <Input
+                                  id={`${appliance.id}-end`}
+                                  type="time"
+                                  value={data.endTime}
+                                  onChange={(e) => updateApplianceData(appliance.id, "endTime", e.target.value)}
+                                  className="h-8"
+                                />
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-between text-xs pt-2 border-t">
+                              <span className="text-muted-foreground">Est. Daily Usage:</span>
+                              <span className="font-medium">{breakdown.dailyUsage} hours</span>
+                            </div>
+                            <div className="flex gap-4 text-xs">
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full bg-chart-3" />
+                                <span className="text-muted-foreground">Peak: {breakdown.peakUsage}h</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full bg-chart-1" />
+                                <span className="text-muted-foreground">Off-Peak: {breakdown.offPeakUsage}h</span>
+                              </div>
+                            </div>
                           </div>
+
                           {appliance.id === "ac" && (
-                            <div className="flex items-end">
+                            <div className="flex items-end pt-2">
                               <div className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`${appliance.id}-always-on`}
@@ -336,3 +404,4 @@ export default function SetupPage() {
     </AppShell>
   )
 }
+
