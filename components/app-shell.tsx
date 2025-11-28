@@ -4,7 +4,7 @@ import type React from "react"
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Zap, LayoutDashboard, Calculator, LineChart, Menu, User, LogOut } from "lucide-react"
+import { Zap, LayoutDashboard, Calculator, LineChart, Menu, User, LogOut, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import {
@@ -21,6 +21,7 @@ const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Simulator", href: "/audit", icon: Calculator },
   { name: "Insights", href: "/insights", icon: LineChart },
+  { name: "Plan", href: "/plan", icon: ClipboardList },
 ]
 
 import { signout } from "@/app/auth/actions"
