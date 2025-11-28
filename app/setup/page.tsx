@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,7 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { LoadingOverlay } from "@/components/loading-overlay"
+import { AlertDialog } from "@/components/alert-dialog"
 import {
   AirVent,
   Refrigerator,
@@ -58,6 +59,7 @@ export default function SetupPage() {
   const [appliances, setAppliances] = useState<Record<string, ApplianceData>>({})
   const [isTouPlan, setIsTouPlan] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: "", message: "" })
 
   const toggleAppliance = (id: string, defaultWatt: number) => {
     setAppliances((prev) => {
@@ -91,7 +93,47 @@ export default function SetupPage() {
     }))
   }
 
+  const isValueInvalid = (applianceId: string, field: 'count' | 'watt', value: number) => {
+    if (field === 'count') {
+      const maxUnits = applianceId === "lights" ? 200 : 50
+      return value > maxUnits || value < 1
+    }
+    if (field === 'watt') {
+      return value > 99999 || value < 1
+    }
+    return false
+  }
+
+  const validateAllInputs = () => {
+    const errors: string[] = []
+    
+    Object.values(appliances).forEach((app) => {
+      const type = applianceTypes.find(t => t.id === app.id)
+      const maxUnits = app.id === "lights" ? 200 : 50
+      
+      if (app.count < 1 || app.count > maxUnits) {
+        errors.push(`${type?.name}: Units must be between 1 and ${maxUnits}`)
+      }
+      if (app.watt < 1 || app.watt > 99999) {
+        errors.push(`${type?.name}: Wattage must be between 1 and 99999`)
+      }
+    })
+    
+    return errors
+  }
+
   const handleComplete = async () => {
+    const validationErrors = validateAllInputs()
+    
+    if (validationErrors.length > 0) {
+      setAlertConfig({
+        isOpen: true,
+        title: "Invalid Input Values",
+        message: "Please input reasonable values:\n\n" + validationErrors.join("\n")
+      })
+      return
+    }
+
     setIsSubmitting(true)
     try {
       // Save appliances to Supabase
@@ -142,6 +184,13 @@ export default function SetupPage() {
   return (
     <AppShell>
       {isSubmitting && <LoadingOverlay message="Setting up your profile..." />}
+      <AlertDialog
+        isOpen={alertConfig.isOpen}
+        onClose={() => setAlertConfig({ isOpen: false, title: "", message: "" })}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type="error"
+      />
       <div className="container max-w-5xl mx-auto px-4 py-8 md:py-12">
         <div className="mb-8 text-center">
           <div className="flex justify-center mb-4">
@@ -276,11 +325,20 @@ export default function SetupPage() {
                                 type="number"
                                 min="1"
                                 value={data.count}
-                                onChange={(e) =>
-                                  updateApplianceData(appliance.id, "count", Number.parseInt(e.target.value) || 1)
-                                }
-                                className="h-9"
+                                onChange={(e) => {
+                                  const value = Number.parseInt(e.target.value) || 1
+                                  updateApplianceData(appliance.id, "count", value)
+                                }}
+                                className={cn(
+                                  "h-9",
+                                  isValueInvalid(appliance.id, 'count', data.count) && "border-red-500 ring-2 ring-red-500/20"
+                                )}
                               />
+                              {isValueInvalid(appliance.id, 'count', data.count) && (
+                                <p className="text-xs text-red-600 dark:text-red-400">
+                                  Must be between 1 and {appliance.id === "lights" ? 200 : 50}
+                                </p>
+                              )}
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor={`${appliance.id}-watt`} className="text-sm">
@@ -289,13 +347,22 @@ export default function SetupPage() {
                               <Input
                                 id={`${appliance.id}-watt`}
                                 type="number"
-                                min="0"
+                                min="1"
                                 value={data.watt}
-                                onChange={(e) =>
-                                  updateApplianceData(appliance.id, "watt", Number.parseFloat(e.target.value) || 0)
-                                }
-                                className="h-9"
+                                onChange={(e) => {
+                                  const value = Number.parseFloat(e.target.value) || 0
+                                  updateApplianceData(appliance.id, "watt", value)
+                                }}
+                                className={cn(
+                                  "h-9",
+                                  isValueInvalid(appliance.id, 'watt', data.watt) && "border-red-500 ring-2 ring-red-500/20"
+                                )}
                               />
+                              {isValueInvalid(appliance.id, 'watt', data.watt) && (
+                                <p className="text-xs text-red-600 dark:text-red-400">
+                                  Must be between 1 and 99999
+                                </p>
+                              )}
                             </div>
                           </div>
                           

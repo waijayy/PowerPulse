@@ -39,6 +39,7 @@ import { getAppliances, addAppliance, deleteAppliance, updateAppliance } from ".
 import { signout } from "../auth/actions"
 import { createClient } from "@/utils/supabase/client"
 import { calculateUsageBreakdown } from "@/utils/usage-calculations"
+import { AlertDialog } from "@/components/alert-dialog"
 
 type ApplianceData = {
   id: number
@@ -94,6 +95,7 @@ export default function ProfilePage() {
   const [newWatt, setNewWatt] = useState(0)
   const [newStartTime, setNewStartTime] = useState("18:00")
   const [newEndTime, setNewEndTime] = useState("22:00")
+  const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: "", message: "" })
 
   useEffect(() => {
     // Fetch appliances on load
@@ -199,12 +201,59 @@ export default function ProfilePage() {
     await signout()
   }
 
+  const isValueInvalid = (applianceName: string, field: 'quantity' | 'watt', value: number) => {
+    if (field === 'quantity') {
+      const maxUnits = applianceName.toLowerCase().includes("light") ? 200 : 50
+      return value > maxUnits || value < 1
+    }
+    if (field === 'watt') {
+      return value > 99999 || value < 1
+    }
+    return false
+  }
+
   const handleAddAppliance = async () => {
     if (!selectedType) return
 
-    const formData = new FormData()
     const type = applianceTypes.find(t => t.id === selectedType)
-    formData.append("name", type?.name || "Appliance")
+    const typeName = type?.name || "Appliance"
+    
+    // Check for duplicates
+    const isDuplicate = appliances.some(app => 
+      app.name.toLowerCase().includes(type?.name.toLowerCase() || "") ||
+      app.name.toLowerCase().includes(selectedType)
+    )
+    
+    if (isDuplicate) {
+      setAlertConfig({
+        isOpen: true,
+        title: "Duplicate Appliance",
+        message: `You have already added ${typeName}. Please edit the existing one instead.`
+      })
+      return
+    }
+
+    // Validate inputs
+    const maxUnits = selectedType === "lights" ? 200 : 50
+    if (newQuantity < 1 || newQuantity > maxUnits) {
+      setAlertConfig({
+        isOpen: true,
+        title: "Invalid Input Values",
+        message: `Please input reasonable values:\n\nUnits must be between 1 and ${maxUnits}`
+      })
+      return
+    }
+    if (newWatt < 1 || newWatt > 99999) {
+      setAlertConfig({
+        isOpen: true,
+        title: "Invalid Input Values",
+        message: `Please input reasonable values:\n\nWattage must be between 1 and 99999`
+      })
+      return
+    }
+
+    const formData = new FormData()
+    formData.append("name", typeName)
     formData.append("quantity", newQuantity.toString())
     formData.append("watt", newWatt.toString())
     formData.append("usage_start_time", newStartTime)
@@ -234,6 +283,25 @@ export default function ProfilePage() {
   const handleUpdateAppliance = async (id: number) => {
     const app = appliances.find(a => a.id === id)
     if (app) {
+        // Validate inputs before saving
+        const maxUnits = app.name.toLowerCase().includes("light") ? 200 : 50
+        if (app.quantity < 1 || app.quantity > maxUnits) {
+          setAlertConfig({
+            isOpen: true,
+            title: "Invalid Input Values",
+            message: `Please input reasonable values:\n\nUnits must be between 1 and ${maxUnits}`
+          })
+          return
+        }
+        if (app.watt < 1 || app.watt > 99999) {
+          setAlertConfig({
+            isOpen: true,
+            title: "Invalid Input Values",
+            message: `Please input reasonable values:\n\nWattage must be between 1 and 99999`
+          })
+          return
+        }
+
         const formData = new FormData()
         formData.append("name", app.name)
         formData.append("quantity", app.quantity.toString())
@@ -291,6 +359,13 @@ export default function ProfilePage() {
 
   return (
     <AppShell>
+      <AlertDialog
+        isOpen={alertConfig.isOpen}
+        onClose={() => setAlertConfig({ isOpen: false, title: "", message: "" })}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type="error"
+      />
       <div className="container max-w-4xl mx-auto px-4 py-6 md:py-8 space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Profile Settings</h1>
@@ -533,58 +608,6 @@ export default function ProfilePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Change Password</CardTitle>
-            <CardDescription>Update your password to keep your account secure</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-password">New Password</Label>
-              <div className="relative">
-                <Input
-                  id="new-password"
-                  type={showNewPassword ? "text" : "password"}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                >
-                  {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm New Password</Label>
-              <div className="relative">
-                <Input
-                  id="confirm-password"
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-            <Button onClick={handleChangePassword} variant="outline" className="w-full sm:w-auto bg-transparent">
-              Update Password
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>Electrical Appliances</CardTitle>
@@ -617,20 +640,37 @@ export default function ProfilePage() {
                   <div className="space-y-4 py-4">
                     {!selectedType ? (
                         <div className="grid grid-cols-2 gap-4">
-                            {applianceTypes.map((type) => (
-                            <Button
-                                key={type.id}
-                                variant="outline"
-                                className="h-32 flex flex-col items-center justify-center gap-3 hover:border-primary hover:bg-primary/5"
-                                onClick={() => {
-                                    setSelectedType(type.id)
-                                    setNewWatt(type.defaultWatt)
-                                }}
-                            >
-                                <type.icon className="h-12 w-12 text-primary" />
-                                <span className="text-sm font-medium">{type.name}</span>
-                            </Button>
-                            ))}
+                            {applianceTypes.map((type) => {
+                              const isAlreadyAdded = appliances.some(app => 
+                                app.name.toLowerCase().includes(type.name.toLowerCase()) ||
+                                app.name.toLowerCase().includes(type.id)
+                              )
+                              return (
+                                <Button
+                                    key={type.id}
+                                    variant="outline"
+                                    disabled={isAlreadyAdded}
+                                    className={cn(
+                                      "h-32 flex flex-col items-center justify-center gap-3",
+                                      isAlreadyAdded 
+                                        ? "opacity-50 cursor-not-allowed bg-muted" 
+                                        : "hover:border-primary hover:bg-primary/5"
+                                    )}
+                                    onClick={() => {
+                                        if (!isAlreadyAdded) {
+                                          setSelectedType(type.id)
+                                          setNewWatt(type.defaultWatt)
+                                        }
+                                    }}
+                                >
+                                    <type.icon className={cn("h-12 w-12", isAlreadyAdded ? "text-muted-foreground" : "text-primary")} />
+                                    <span className="text-sm font-medium text-center">
+                                      {type.name}
+                                      {isAlreadyAdded && <div className="text-xs text-muted-foreground">(Already Added)</div>}
+                                    </span>
+                                </Button>
+                              )
+                            })}
                         </div>
                     ) : (
                         <div className="space-y-4">
@@ -640,11 +680,37 @@ export default function ProfilePage() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label>Quantity</Label>
-                                    <Input type="number" min="1" value={newQuantity} onChange={(e) => setNewQuantity(parseInt(e.target.value) || 1)} />
+                                    <Input 
+                                      type="number" 
+                                      min="1" 
+                                      value={newQuantity} 
+                                      onChange={(e) => setNewQuantity(parseInt(e.target.value) || 1)}
+                                      className={cn(
+                                        isValueInvalid(selectedType, 'quantity', newQuantity) && "border-red-500 ring-2 ring-red-500/20"
+                                      )}
+                                    />
+                                    {isValueInvalid(selectedType, 'quantity', newQuantity) && (
+                                      <p className="text-xs text-red-600 dark:text-red-400">
+                                        Must be between 1 and {selectedType === "lights" ? 200 : 50}
+                                      </p>
+                                    )}
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Power (Watts)</Label>
-                                    <Input type="number" min="0" value={newWatt} onChange={(e) => setNewWatt(parseFloat(e.target.value) || 0)} />
+                                    <Input 
+                                      type="number" 
+                                      min="0" 
+                                      value={newWatt} 
+                                      onChange={(e) => setNewWatt(parseFloat(e.target.value) || 0)}
+                                      className={cn(
+                                        isValueInvalid(selectedType, 'watt', newWatt) && "border-red-500 ring-2 ring-red-500/20"
+                                      )}
+                                    />
+                                    {isValueInvalid(selectedType, 'watt', newWatt) && (
+                                      <p className="text-xs text-red-600 dark:text-red-400">
+                                        Must be between 1 and 99999
+                                      </p>
+                                    )}
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -714,9 +780,13 @@ export default function ProfilePage() {
                               min="1"
                               value={appliance.quantity}
                               disabled={!isEditing}
-                              onChange={(e) =>
-                                updateLocalAppliance(appliance.id, "quantity", Number.parseInt(e.target.value) || 1)
-                              }
+                              onChange={(e) => {
+                                const value = Number.parseInt(e.target.value) || 1
+                                updateLocalAppliance(appliance.id, "quantity", value)
+                              }}
+                              className={cn(
+                                isEditing && isValueInvalid(appliance.name, 'quantity', appliance.quantity) && "border-red-500 ring-2 ring-red-500/20"
+                              )}
                             />
                           </div>
                           <div className="space-y-2">
@@ -729,9 +799,13 @@ export default function ProfilePage() {
                               min="0"
                               value={appliance.watt}
                               disabled={!isEditing}
-                              onChange={(e) =>
-                                updateLocalAppliance(appliance.id, "watt", Number.parseFloat(e.target.value) || 0)
-                              }
+                              onChange={(e) => {
+                                const value = Number.parseFloat(e.target.value) || 0
+                                updateLocalAppliance(appliance.id, "watt", value)
+                              }}
+                              className={cn(
+                                isEditing && isValueInvalid(appliance.name, 'watt', appliance.watt) && "border-red-500 ring-2 ring-red-500/20"
+                              )}
                             />
                           </div>
                         </div>
@@ -789,6 +863,58 @@ export default function ProfilePage() {
                 })}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Change Password</CardTitle>
+            <CardDescription>Update your password to keep your account secure</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New Password</Label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                >
+                  {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm New Password</Label>
+              <div className="relative">
+                <Input
+                  id="confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                >
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <Button onClick={handleChangePassword} variant="outline" className="w-full sm:w-auto bg-transparent">
+              Update Password
+            </Button>
           </CardContent>
         </Card>
 
