@@ -6,16 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { AlertTriangle, TrendingUp, Activity, Clock } from "lucide-react"
-import { Area, AreaChart, Line, LineChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from "recharts"
+import { AlertTriangle, TrendingUp, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
+import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
+import { createClient } from "@/utils/supabase/client"
 
 const generateUsageData = () => {
   const now = new Date()
@@ -83,13 +78,22 @@ export default function DashboardPage() {
       setCurrentUsage((prev) => Math.min(prev + Math.random() * 2 - 0.5, 100))
     }, 5000)
 
-    if (typeof window !== "undefined") {
-      const setup = localStorage.getItem("powerPulseSetup")
-      if (setup) {
-        const data = JSON.parse(setup)
-        setBudgetTarget(data.budgetTarget || 150)
+    // Fetch budget target from database
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        supabase
+          .from('profiles')
+          .select('monthly_budget_target')
+          .eq('id', user.id)
+          .single()
+          .then(({ data: profile }) => {
+            if (profile?.monthly_budget_target) {
+              setBudgetTarget(profile.monthly_budget_target)
+            }
+          })
       }
-    }
+    })
 
     return () => clearInterval(interval)
   }, [])
@@ -201,139 +205,14 @@ export default function DashboardPage() {
           </Alert>
         )}
 
-        {/* Live Usage Chart */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Live Energy Consumption</CardTitle>
-                <CardDescription>Real-time usage vs. your budget limit</CardDescription>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Last 2 hours</span>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={usageData}>
-                  <defs>
-                    <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="rgb(37 99 235)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="rgb(37 99 235)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgb(148 163 184 / 0.2)" />
-                  <XAxis dataKey="time" stroke="rgb(100 116 139)" fontSize={12} tickLine={false} />
-                  <YAxis
-                    stroke="rgb(100 116 139)"
-                    fontSize={12}
-                    tickLine={false}
-                    label={{ value: "kW", angle: -90, position: "insideLeft", style: { fontSize: 12 } }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "rgb(255 255 255)",
-                      border: "1px solid rgb(226 232 240)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                    }}
-                  />
-                  <ReferenceLine
-                    y={4.5}
-                    stroke="rgb(239 68 68)"
-                    strokeDasharray="5 5"
-                    label={{ value: "Budget Limit", position: "right", fill: "rgb(239 68 68)", fontSize: 12 }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="usage"
-                    stroke="rgb(37 99 235)"
-                    strokeWidth={2}
-                    fill="url(#usageGradient)"
-                    name="Current Usage (kW)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <LiveUsageChart data={usageData} />
 
-        {/* Usage Trend Line Chart */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>{viewMode === "week" ? "Weekly" : "Monthly"} Usage Trend</CardTitle>
-                <CardDescription>
-                  Your daily consumption over the past {viewMode === "week" ? "week" : "month"}
-                </CardDescription>
-              </div>
-              <Select value={viewMode} onValueChange={(value: "week" | "month") => setViewMode(value)}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="week">Week</SelectItem>
-                  <SelectItem value="month">Month</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trendData}>
-                  <defs>
-                    <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="rgb(16 185 129)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="rgb(16 185 129)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgb(148 163 184 / 0.2)" />
-                  <XAxis 
-                    dataKey="label" 
-                    stroke="rgb(100 116 139)" 
-                    fontSize={12} 
-                    tickLine={false}
-                    interval={viewMode === "month" ? 4 : 0}
-                  />
-                  <YAxis
-                    stroke="rgb(100 116 139)"
-                    fontSize={12}
-                    tickLine={false}
-                    label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 12 } }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "rgb(255 255 255)",
-                      border: "1px solid rgb(226 232 240)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                    }}
-                  />
-                  <ReferenceLine
-                    y={20}
-                    stroke="rgb(239 68 68)"
-                    strokeDasharray="5 5"
-                    label={{ value: "Target", position: "right", fill: "rgb(239 68 68)", fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="usage"
-                    stroke="rgb(16 185 129)"
-                    strokeWidth={2}
-                    dot={{ fill: "rgb(16 185 129)", r: 4 }}
-                    activeDot={{ r: 6 }}
-                    name="Usage (kWh)"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <UsageTrendChart 
+          data={trendData} 
+          viewMode={viewMode} 
+          onViewModeChange={setViewMode}
+          budgetTarget={budgetTarget}
+        />
       </div>
     </AppShell>
   )
