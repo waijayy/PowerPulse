@@ -47,7 +47,10 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
     ```env
     NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
     NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+    PHANTOM_API_URL=http://localhost:5000
     ```
+    
+    **Note**: `PHANTOM_API_URL` is optional and defaults to `http://localhost:5000`. If your phantom detection API is running on a different URL, update this value.
 
 4.  **Database Setup**
     Run the SQL scripts provided in `schema.sql` in your Supabase SQL Editor to set up the necessary tables and policies.
@@ -69,7 +72,33 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
     ALTER TABLE appliances ADD COLUMN IF NOT EXISTS usage_end_time time;
     ```
 
-5.  **Run the Development Server**
+5.  **Set up Phantom Load Detection (Optional)**
+    To enable phantom load detection in the Insights page:
+    
+    a. Navigate to the `phantom-api` directory:
+       ```bash
+       cd phantom-api
+       ```
+    
+    b. Install Python dependencies:
+       ```bash
+       pip install flask flask-cors numpy pandas tensorflow
+       ```
+    
+    c. Train and save the model (if not already done):
+       ```bash
+       python setup_model.py
+       ```
+    
+    d. Start the Flask API server:
+       ```bash
+       python flask_api.py
+       ```
+       The API will run on `http://localhost:5000` by default.
+    
+    **Note**: The Insights page will work without the phantom API, but will show default values. The API is used to analyze power consumption patterns and detect phantom loads.
+
+6.  **Run the Development Server**
     ```bash
     npm run dev
     ```

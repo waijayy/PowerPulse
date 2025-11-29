@@ -54,13 +54,8 @@ const generateMonthlyData = () => {
 type GridStatus = "healthy" | "warning" | "critical"
 
 const getGridStatus = (): GridStatus => {
-  const hour = new Date().getHours()
-  if (hour >= 18 && hour <= 22) {
-    return Math.random() > 0.5 ? "critical" : "warning"
-  } else if (hour >= 8 && hour <= 18) {
-    return Math.random() > 0.7 ? "warning" : "healthy"
-  }
-  return "healthy"
+  // Always return critical to alert users to reduce electric usage
+  return "critical"
 }
 
 export default function DashboardPage() {
@@ -143,7 +138,11 @@ export default function DashboardPage() {
     <AppShell>
       <div className="container mx-auto px-4 py-6 md:py-8 space-y-6">
         <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-2">
-          <Card className={cn("border-2", currentGridConfig.borderColor)}>
+          <Card className={cn(
+            "border-2 relative",
+            currentGridConfig.borderColor,
+            gridStatus === "critical" && "animate-pulse-border shadow-[0_0_20px_rgba(239,68,68,0.5)]"
+          )}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base font-medium">Grid Status</CardTitle>
@@ -161,6 +160,20 @@ export default function DashboardPage() {
               >
                 {currentGridConfig.badge}
               </Badge>
+              
+              {gridStatus === "critical" && (
+                <div className="mt-3 pt-3 border-t border-chart-3/20">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-chart-3 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-chart-3">Critical Usage Alert</p>
+                      <p className="text-xs text-muted-foreground">
+                        Grid experiencing critically high usage! Please reduce electricity consumption immediately by turning off unnecessary appliances and unplugging devices.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -193,17 +206,6 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
-
-        {gridStatus === "critical" && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-5 w-5" />
-            <AlertTitle>Peak Hour Alert</AlertTitle>
-            <AlertDescription>
-              Grid stress detected. Consider delaying high-energy tasks like laundry to save costs and reduce carbon
-              emissions.
-            </AlertDescription>
-          </Alert>
-        )}
 
         <LiveUsageChart data={usageData} />
 

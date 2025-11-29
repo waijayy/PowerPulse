@@ -157,3 +157,19 @@
 .animate-bounce-x {
   animation: bounce-x 2s infinite ease-in-out;
 }
+
+/* Red glowing border animation for critical alerts */
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: rgb(239 68 68 / 0.5);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    border-color: rgb(239 68 68 / 1);
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.6);
+  }
+}
+
+.animate-pulse-border {
+  animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
