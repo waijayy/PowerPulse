@@ -76,6 +76,7 @@ export default function PlanPage() {
   const [appliances, setAppliances] = useState<ApplianceData[]>([]);
   const [currentBill, setCurrentBill] = useState(0);
   const [targetBill, setTargetBill] = useState(120);
+  const [lastMonthBill, setLastMonthBill] = useState(0);
   const [activeTab, setActiveTab] = useState<"weekday" | "weekend">("weekday");
   
   // Chat state
@@ -99,6 +100,12 @@ export default function PlanPage() {
         const res = await fetch("/api/appliances");
         if (res.ok) {
           const data = await res.json();
+          
+          if (data.profile) {
+            setLastMonthBill(data.profile.total_bill_amount || 0);
+            setTargetBill(data.profile.monthly_budget_target || 150);
+          }
+
           if (data.appliances && data.appliances.length > 0) {
             const peakRate = 0.2852;
             const offPeakRate = 0.2443;
@@ -186,8 +193,7 @@ export default function PlanPage() {
     return Icon;
   };
 
-  const lastMonthBill = 145.50;
-  const potentialSavings = generatedPlan ? generatedPlan.total_savings : (lastMonthBill - targetBill);
+  const potentialSavings = generatedPlan ? generatedPlan.total_savings : Math.max(0, lastMonthBill - targetBill);
   const displayedBill = generatedPlan?.projected_bill || currentBill;
   const progressPercent = Math.min((displayedBill / targetBill) * 100, 100);
   const isUnderBudget = displayedBill <= targetBill;
@@ -301,7 +307,7 @@ export default function PlanPage() {
                   RM {displayedBill.toFixed(2)}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {Math.round((displayedBill / lastMonthBill) * 100)}% of last month
+                  {lastMonthBill > 0 ? Math.round((displayedBill / lastMonthBill) * 100) : 100}% of last month
                 </p>
               </div>
             </div>

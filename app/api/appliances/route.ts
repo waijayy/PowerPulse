@@ -4,9 +4,9 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   try {
     const supabase = await createClient()
-    
+
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
@@ -22,7 +22,17 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to fetch appliances' }, { status: 500 })
     }
 
-    return NextResponse.json({ appliances })
+    // Fetch profile data for bill info
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('total_bill_amount, monthly_budget_target')
+      .eq('id', user.id)
+      .single()
+
+    return NextResponse.json({
+      appliances,
+      profile: profile || { total_bill_amount: 0, monthly_budget_target: 150 }
+    })
   } catch (error) {
     console.error('Appliances API error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
