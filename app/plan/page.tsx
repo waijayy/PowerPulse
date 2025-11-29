@@ -29,7 +29,8 @@ import {
   Bot,
   Pencil,
   Check,
-  X
+  X,
+  Banknote
 } from "lucide-react";
 import { updateBudget } from "../profile/actions";
 
@@ -47,6 +48,8 @@ type PlanItem = {
   name: string;
   current_hours: string;
   planned_hours: string;
+  planned_peak_hours?: number;
+  planned_off_peak_hours?: number;
   monthly_savings: number;
   change: string;
 };
@@ -83,6 +86,7 @@ export default function PlanPage() {
   const [tempTargetBill, setTempTargetBill] = useState(120);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [lastMonthBill, setLastMonthBill] = useState(0);
+  const [expectedMonthlyCost, setExpectedMonthlyCost] = useState(0);
   const [activeTab, setActiveTab] = useState<"weekday" | "weekend">("weekday");
   
   // Chat state
@@ -111,6 +115,12 @@ export default function PlanPage() {
             setLastMonthBill(data.profile.total_bill_amount || 0);
             setTargetBill(data.profile.monthly_budget_target || 150);
             setTempTargetBill(data.profile.monthly_budget_target || 150);
+            setExpectedMonthlyCost(data.profile.expected_monthly_cost || 0);
+          }
+
+          // Load saved planning data if it exists
+          if (data.planning) {
+            setGeneratedPlan(data.planning);
           }
 
           if (data.appliances && data.appliances.length > 0) {
@@ -221,7 +231,7 @@ export default function PlanPage() {
   };
 
   const potentialSavings = generatedPlan ? generatedPlan.total_savings : Math.max(0, lastMonthBill - targetBill);
-  const displayedBill = generatedPlan?.projected_bill || currentBill;
+  const displayedBill = generatedPlan?.projected_bill || (expectedMonthlyCost > 0 ? expectedMonthlyCost : currentBill);
   const progressPercent = Math.min((displayedBill / targetBill) * 100, 100);
   const isUnderBudget = displayedBill <= targetBill;
 
@@ -331,12 +341,17 @@ export default function PlanPage() {
           {/* Potential Savings */}
           <Card className="bg-green-50 border-green-200">
             <CardContent className="pt-6">
-              <div>
-                <p className="text-sm text-muted-foreground">Potential Savings</p>
-                <p className="text-3xl font-bold mt-1 text-green-600">RM {potentialSavings.toFixed(2)}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {generatedPlan ? "Based on AI optimized plan" : "Difference from last month"}
-                </p>
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-green-100">
+                  <Banknote className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Potential Savings</p>
+                  <p className="text-3xl font-bold mt-1 text-green-600">RM {potentialSavings.toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {generatedPlan ? "Based on AI optimized plan" : "Difference from last month"}
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>

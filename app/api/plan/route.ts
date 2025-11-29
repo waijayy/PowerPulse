@@ -6,10 +6,10 @@ import { ELECTRICITY_RATES, senToRM } from '@/constants/electricity-rates'
 export async function POST(req: Request) {
   try {
     const { message, targetBill } = await req.json()
-    
+
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Please log in to use the planner.' }, { status: 401 })
     }
@@ -21,21 +21,21 @@ export async function POST(req: Request) {
       .eq('user_id', user.id)
 
     if (error || !appliances || appliances.length === 0) {
-      return NextResponse.json({ 
-        error: 'No appliances found. Please set up your appliances first at /setup' 
+      return NextResponse.json({
+        error: 'No appliances found. Please set up your appliances first at /setup'
       }, { status: 400 })
     }
 
     // Calculate current costs using real rates
     const peakRate = senToRM(ELECTRICITY_RATES.LOW_USAGE.peak)
     const offPeakRate = senToRM(ELECTRICITY_RATES.LOW_USAGE.offPeak)
-    
+
     const applianceData = appliances.map((app) => {
       const kWh = app.watt / 1000
       const dailyPeakCost = app.quantity * kWh * app.peak_usage_hours * peakRate
       const dailyOffPeakCost = app.quantity * kWh * app.off_peak_usage_hours * offPeakRate
       const dailyCost = dailyPeakCost + dailyOffPeakCost
-      
+
       return {
         name: app.name,
         quantity: app.quantity,
@@ -83,6 +83,8 @@ RESPOND WITH ONLY THIS JSON (no other text):
       "name": "Appliance Name",
       "current_hours": "Xh peak + Yh off-peak",
       "planned_hours": "Ah peak + Bh off-peak",
+      "planned_peak_hours": 5,
+      "planned_off_peak_hours": 2,
       "monthly_savings": 15.50,
       "change": "Brief explanation of change"
     }
@@ -114,9 +116,35 @@ RESPOND WITH ONLY THIS JSON (no other text):
       if (!jsonMatch) {
         throw new Error('No JSON found in response')
       }
-      
+
       const planData = JSON.parse(jsonMatch[0])
-      
+
+      // Save to planning table (upsert - will update if user_id exists)
+      const { error: planError } = await supabase
+        .from('planning')
+        .upsert({
+          user_id: user.id,
+          plan_data: planData
+        }, { onConflict: 'user_id' })
+
+      if (planError) {
+        console.error('Error saving plan:', planError)
+        return NextResponse.json({
+          error: `Failed to save plan: ${planError.message}`,
+          details: planError
+        }, { status: 500 })
+      }
+
+      // Update profiles table with expected monthly cost
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          expected_monthly_cost: planData.projected_bill
+        })
+        .eq('id', user.id)
+
+      if (profileError) console.error('Error updating profile cost:', profileError)
+
       return NextResponse.json({
         ...planData,
         currentBill: currentMonthlyBill,
@@ -125,7 +153,7 @@ RESPOND WITH ONLY THIS JSON (no other text):
     } catch (parseError) {
       console.error('Failed to parse AI response:', aiResponse)
       // Return the raw explanation if JSON parsing fails
-      return NextResponse.json({ 
+      return NextResponse.json({
         explanation: aiResponse,
         projected_bill: currentMonthlyBill,
         total_savings: 0,
@@ -138,4 +166,3 @@ RESPOND WITH ONLY THIS JSON (no other text):
     return NextResponse.json({ error: 'Failed to generate plan. Please try again.' }, { status: 500 })
   }
 }
-

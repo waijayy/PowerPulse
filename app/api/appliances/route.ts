@@ -25,17 +25,24 @@ export async function GET() {
     // Fetch profile data for bill info
     const { data: profile } = await supabase
       .from('profiles')
-      .select('total_bill_amount, monthly_budget_target')
+      .select('total_bill_amount, monthly_budget_target, expected_monthly_cost')
       .eq('id', user.id)
+      .single()
+
+    // Fetch saved planning data
+    const { data: planning } = await supabase
+      .from('planning')
+      .select('plan_data')
+      .eq('user_id', user.id)
       .single()
 
     return NextResponse.json({
       appliances,
-      profile: profile || { total_bill_amount: 0, monthly_budget_target: 150 }
+      profile: profile || { total_bill_amount: 0, monthly_budget_target: 150, expected_monthly_cost: 0 },
+      planning: planning?.plan_data || null
     })
   } catch (error) {
     console.error('Appliances API error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-
