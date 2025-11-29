@@ -12,31 +12,31 @@ import { cn } from "@/lib/utils"
 
 const scheduleItems = [
   {
-    time: "02:00 AM",
-    appliance: "Electric Vehicle",
+    time: "Always",
+    appliance: "Smart Plugs",
+    icon: Zap,
+    reason: "Use smart plugs to cut power to devices in standby mode",
+    status: "optimal",
+  },
+  {
+    time: "Night",
+    appliance: "Entertainment Center",
+    icon: Activity,
+    reason: "Turn off power strips for TV/Gaming consoles overnight",
+    status: "optimal",
+  },
+  {
+    time: "When Charged",
+    appliance: "Chargers",
     icon: Battery,
-    reason: "Lowest rates + Clean energy",
-    status: "optimal",
-  },
-  {
-    time: "10:30 PM",
-    appliance: "Washing Machine",
-    icon: Zap,
-    reason: "Off-peak rates begin",
-    status: "optimal",
-  },
-  {
-    time: "11:00 AM - 2:00 PM",
-    appliance: "Pool Pump",
-    icon: Zap,
-    reason: "Solar peak hours",
+    reason: "Unplug phone/laptop chargers when devices are fully charged",
     status: "good",
   },
   {
-    time: "Avoid 8:00 PM",
-    appliance: "High-Power Appliances",
+    time: "Daily",
+    appliance: "Old Appliances",
     icon: AlertCircle,
-    reason: "Peak demand period",
+    reason: "Consider upgrading older appliances with high standby power",
     status: "warning",
   },
 ]
@@ -200,6 +200,22 @@ export default function InsightsPage() {
                       <> This represents {phantomCount} out of {totalReadings} readings showing standby power consumption.</>
                     )}
                   </p>
+                  {totalReadings > 0 && (
+                    <div className="mb-4 space-y-2">
+                      <div className="flex items-center justify-between text-xs text-amber-700 dark:text-amber-300">
+                        <span className="font-medium">Phantom Load Readings</span>
+                        <span className="font-semibold">{phantomCount} / {totalReadings}</span>
+                      </div>
+                      <Progress 
+                        value={(phantomCount / totalReadings) * 100} 
+                        className="h-2 bg-amber-200 dark:bg-amber-900/30 [&>div]:bg-amber-500 dark:[&>div]:bg-amber-400"
+                      />
+                      <div className="flex items-center justify-between text-xs text-amber-600 dark:text-amber-400">
+                        <span>Phantom Load</span>
+                        <span>Normal Load</span>
+                      </div>
+                    </div>
+                  )}
                   <Button
                     onClick={handleReanalyze}
                     disabled={isReanalyzing}
@@ -336,8 +352,8 @@ export default function InsightsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Optimized Daily Schedule</CardTitle>
-            <CardDescription>Recommended times to run appliances based on grid health and rates</CardDescription>
+            <CardTitle>Recommendation to reduce phantom load</CardTitle>
+            <CardDescription>Simple steps to reduce your standby power consumption</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
