@@ -26,8 +26,13 @@ import {
   User,
   ArrowRight,
   Zap,
-  Bot
+  Bot,
+  Pencil,
+  Check,
+  X,
+  Banknote
 } from "lucide-react";
+import { updateBudget } from "../profile/actions";
 
 type ApplianceData = {
   id: number;
@@ -43,6 +48,8 @@ type PlanItem = {
   name: string;
   current_hours: string;
   planned_hours: string;
+  planned_peak_hours?: number;
+  planned_off_peak_hours?: number;
   monthly_savings: number;
   change: string;
 };
@@ -76,6 +83,10 @@ export default function PlanPage() {
   const [appliances, setAppliances] = useState<ApplianceData[]>([]);
   const [currentBill, setCurrentBill] = useState(0);
   const [targetBill, setTargetBill] = useState(120);
+  const [tempTargetBill, setTempTargetBill] = useState(120);
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
+  const [lastMonthBill, setLastMonthBill] = useState(0);
+  const [expectedMonthlyCost, setExpectedMonthlyCost] = useState(0);
   const [activeTab, setActiveTab] = useState<"weekday" | "weekend">("weekday");
   
   // Chat state
@@ -99,6 +110,19 @@ export default function PlanPage() {
         const res = await fetch("/api/appliances");
         if (res.ok) {
           const data = await res.json();
+          
+          if (data.profile) {
+            setLastMonthBill(data.profile.total_bill_amount || 0);
+            setTargetBill(data.profile.monthly_budget_target || 150);
+            setTempTargetBill(data.profile.monthly_budget_target || 150);
+            setExpectedMonthlyCost(data.profile.expected_monthly_cost || 0);
+          }
+
+          // Load saved planning data if it exists
+          if (data.planning) {
+            setGeneratedPlan(data.planning);
+          }
+
           if (data.appliances && data.appliances.length > 0) {
             const peakRate = 0.2852;
             const offPeakRate = 0.2443;
@@ -186,9 +210,28 @@ export default function PlanPage() {
     return Icon;
   };
 
-  const lastMonthBill = 145.50;
-  const potentialSavings = generatedPlan ? generatedPlan.total_savings : (lastMonthBill - targetBill);
-  const displayedBill = generatedPlan?.projected_bill || currentBill;
+  const handleEditTarget = () => {
+    setTempTargetBill(targetBill);
+    setIsEditingTarget(true);
+  };
+
+  const handleCancelTarget = () => {
+    setTempTargetBill(targetBill);
+    setIsEditingTarget(false);
+  };
+
+  const handleSaveTarget = async () => {
+    const res = await updateBudget(tempTargetBill);
+    if (res.success) {
+      setTargetBill(tempTargetBill);
+      setIsEditingTarget(false);
+    } else {
+      console.error("Failed to save budget");
+    }
+  };
+
+  const potentialSavings = generatedPlan ? generatedPlan.total_savings : Math.max(0, lastMonthBill - targetBill);
+  const displayedBill = generatedPlan?.projected_bill || (expectedMonthlyCost > 0 ? expectedMonthlyCost : currentBill);
   const progressPercent = Math.min((displayedBill / targetBill) * 100, 100);
   const isUnderBudget = displayedBill <= targetBill;
 
@@ -256,16 +299,39 @@ export default function PlanPage() {
                   <Target className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-muted-foreground">Target Next Month</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-2xl font-bold">RM</span>
-                    <Input
-                      type="number"
-                      value={targetBill}
-                      onChange={(e) => setTargetBill(parseFloat(e.target.value) || 0)}
-                      className="w-28 h-10 text-2xl font-bold border-0 p-0 focus-visible:ring-0"
-                    />
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">Target Next Month</p>
+                    {isEditingTarget ? (
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={handleSaveTarget}>
+                          <Check className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50" onClick={handleCancelTarget}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary" onClick={handleEditTarget}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
+                  
+                  {isEditingTarget ? (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-2xl font-bold">RM</span>
+                      <Input
+                        type="number"
+                        value={tempTargetBill}
+                        onChange={(e) => setTempTargetBill(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-9 text-lg font-bold"
+                        autoFocus
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-3xl font-bold mt-1">RM {targetBill.toFixed(2)}</p>
+                  )}
+                  
                   <p className="text-xs text-muted-foreground mt-1">Your savings goal</p>
                 </div>
               </div>
@@ -275,12 +341,17 @@ export default function PlanPage() {
           {/* Potential Savings */}
           <Card className="bg-green-50 border-green-200">
             <CardContent className="pt-6">
-              <div>
-                <p className="text-sm text-muted-foreground">Potential Savings</p>
-                <p className="text-3xl font-bold mt-1 text-green-600">RM {potentialSavings.toFixed(2)}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {generatedPlan ? "Based on AI optimized plan" : "Difference from last month"}
-                </p>
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-green-100">
+                  <Banknote className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Potential Savings</p>
+                  <p className="text-3xl font-bold mt-1 text-green-600">RM {potentialSavings.toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {generatedPlan ? "Based on AI optimized plan" : "Difference from last month"}
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -301,7 +372,7 @@ export default function PlanPage() {
                   RM {displayedBill.toFixed(2)}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {Math.round((displayedBill / lastMonthBill) * 100)}% of last month
+                  {lastMonthBill > 0 ? Math.round((displayedBill / lastMonthBill) * 100) : 100}% of last month
                 </p>
               </div>
             </div>
