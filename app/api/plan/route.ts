@@ -82,7 +82,7 @@ export async function POST(req: Request) {
       // Use weekday hours for display (or average if needed)
       const avgPeak = (item.planned_peak_hours_weekday * 5 + item.planned_peak_hours_weekend * 2) / 7
       const avgOffPeak = (item.planned_offpeak_hours_weekday * 5 + item.planned_offpeak_hours_weekend * 2) / 7
-      
+
       return {
         name: item.name,
         current_hours: `${item.last_month_peak_hours}h peak + ${item.last_month_offpeak_hours}h off-peak`,
@@ -100,14 +100,14 @@ export async function POST(req: Request) {
     })
 
     // If user has a specific message request, use AI to refine, otherwise use calculator result
-    const hasSpecificRequest = message && message.trim().length > 0 && 
-      !message.toLowerCase().includes('optimize') && 
+    const hasSpecificRequest = message && message.trim().length > 0 &&
+      !message.toLowerCase().includes('optimize') &&
       !message.toLowerCase().includes('target')
 
     if (hasSpecificRequest) {
       // Use AI to refine based on user request
       // Build the AI prompt
-    const systemPrompt = `You are an AI energy optimizer for PowerPulse, a Malaysian electricity management app.
+      const systemPrompt = `You are an AI energy optimizer for PowerPulse, a Malaysian electricity management app.
 
 ELECTRICITY RATES (Malaysian Ringgit per kWh):
 - Peak hours (8am-10pm): RM ${peakRate.toFixed(4)}/kWh
@@ -154,95 +154,95 @@ RESPOND WITH ONLY THIS JSON (no other text):
   "explanation": "Friendly 2-3 sentence summary of the plan and key tips"
 }`
 
-    const client = new Groq({
-      apiKey: process.env.GROQ_API_KEY,
-    })
+      const client = new Groq({
+        apiKey: process.env.GROQ_API_KEY,
+      })
 
-    const response = await client.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `User request: "${message}"\n\nCreate a plan that accommodates this while keeping the monthly bill under RM ${effectiveTargetBill}.` }
-      ],
-      temperature: 0.2,
-      max_tokens: 2000,
-    })
+      const response = await client.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `User request: "${message}"\n\nCreate a plan that accommodates this while keeping the monthly bill under RM ${effectiveTargetBill}.` }
+        ],
+        temperature: 0.2,
+        max_tokens: 2000,
+      })
 
-    const aiResponse = response.choices[0].message.content
+      const aiResponse = response.choices[0].message.content
 
-    // Parse the JSON response
-    try {
-      const jsonMatch = aiResponse?.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        throw new Error('No JSON found in response')
-      }
+      // Parse the JSON response
+      try {
+        const jsonMatch = aiResponse?.match(/\{[\s\S]*\}/)
+        if (!jsonMatch) {
+          throw new Error('No JSON found in response')
+        }
 
-      const planData = JSON.parse(jsonMatch[0])
+        const planData = JSON.parse(jsonMatch[0])
 
-      // Save to planning table (upsert - will update if user_id exists)
-      const { error: planError } = await supabase
-        .from('planning')
-        .upsert({
-          user_id: user.id,
-          plan_data: planData
-        }, { onConflict: 'user_id' })
+        // Save to planning table (upsert - will update if user_id exists)
+        const { error: planError } = await supabase
+          .from('planning')
+          .upsert({
+            user_id: user.id,
+            plan_data: planData
+          }, { onConflict: 'user_id' })
 
-      if (planError) {
-        console.error('Error saving plan:', planError)
+        if (planError) {
+          console.error('Error saving plan:', planError)
+          return NextResponse.json({
+            error: `Failed to save plan: ${planError.message}`,
+            details: planError
+          }, { status: 500 })
+        }
+
+        // Update profiles table with expected monthly cost
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            expected_monthly_cost: planData.projected_bill
+          })
+          .eq('id', user.id)
+
+        if (profileError) console.error('Error updating profile cost:', profileError)
+
         return NextResponse.json({
-          error: `Failed to save plan: ${planError.message}`,
-          details: planError
-        }, { status: 500 })
-      }
-
-      // Update profiles table with expected monthly cost
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          expected_monthly_cost: planData.projected_bill
+          ...planData,
+          currentBill: baselineBill,
+          targetBill: effectiveTargetBill,
+          lastMonthBill
         })
-        .eq('id', user.id)
+      } catch (parseError) {
+        console.error('Failed to parse AI response:', aiResponse)
+        // Fall back to calculator result if AI fails
+        const planData = {
+          plan: formattedPlan,
+          projected_bill: calculatedPlan.projected_bill,
+          total_savings: calculatedPlan.total_savings,
+          explanation: calculatedPlan.explanation,
+        }
 
-      if (profileError) console.error('Error updating profile cost:', profileError)
+        // Save calculator plan
+        await supabase
+          .from('planning')
+          .upsert({
+            user_id: user.id,
+            plan_data: planData
+          }, { onConflict: 'user_id' })
 
-      return NextResponse.json({
-        ...planData,
-        currentBill: baselineBill,
-        targetBill: effectiveTargetBill,
-        lastMonthBill
-      })
-    } catch (parseError) {
-      console.error('Failed to parse AI response:', aiResponse)
-      // Fall back to calculator result if AI fails
-      const planData = {
-        plan: formattedPlan,
-        projected_bill: calculatedPlan.projected_bill,
-        total_savings: calculatedPlan.total_savings,
-        explanation: calculatedPlan.explanation,
-      }
+        await supabase
+          .from('profiles')
+          .update({
+            expected_monthly_cost: calculatedPlan.projected_bill
+          })
+          .eq('id', user.id)
 
-      // Save calculator plan
-      await supabase
-        .from('planning')
-        .upsert({
-          user_id: user.id,
-          plan_data: planData
-        }, { onConflict: 'user_id' })
-
-      await supabase
-        .from('profiles')
-        .update({
-          expected_monthly_cost: calculatedPlan.projected_bill
+        return NextResponse.json({
+          ...planData,
+          currentBill: baselineBill,
+          targetBill: effectiveTargetBill,
+          lastMonthBill
         })
-        .eq('id', user.id)
-
-      return NextResponse.json({
-        ...planData,
-        currentBill: baselineBill,
-        targetBill: effectiveTargetBill,
-        lastMonthBill
-      })
-    }
+      }
     } else {
       // No specific request, use calculator result directly
       const planData = {

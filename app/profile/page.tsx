@@ -38,7 +38,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { completeSetup } from "./actions"
+import { completeSetup, updateProfile, updateBudget, updateProfileBill } from "./actions"
+import { getAppliances } from "../appliances/actions"
 
 type ApplianceType = {
   id: string
@@ -73,6 +74,8 @@ type Appliance = {
 }
 
 export default function ProfilePage() {
+  const router = useRouter()
+  const supabase = createClient()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [appliances, setAppliances] = useState<Appliance[]>([])
@@ -80,13 +83,14 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [appliances, setAppliances] = useState<ApplianceData[]>([])
   const [savedMessage, setSavedMessage] = useState("")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [isEditingUsername, setIsEditingUsername] = useState(false)
   const [isEditingBudget, setIsEditingBudget] = useState(false)
   const [monthlyBudget, setMonthlyBudget] = useState(150)
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
   
   // Bill Details State
   const [billAmount, setBillAmount] = useState(0)
@@ -99,7 +103,9 @@ export default function ProfilePage() {
   const [newWatt, setNewWatt] = useState(0)
   const [newStartTime, setNewStartTime] = useState("18:00")
   const [newEndTime, setNewEndTime] = useState("22:00")
-  const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: "", message: "" })
+  const [newAlwaysOn, setNewAlwaysOn] = useState(false)
+
+  const { toast } = useToast()
 
   useEffect(() => {
     // Fetch appliances on load
@@ -108,10 +114,11 @@ export default function ProfilePage() {
     })
 
     // Fetch user details
-    const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
+        setUser(user)
         setEmail(user.email || "")
+        setLoading(false)
         
         // Fetch profile data
         supabase
@@ -127,9 +134,25 @@ export default function ProfilePage() {
               if (profile.total_kwh_usage) setBillKwh(profile.total_kwh_usage)
             }
           })
+      } else {
+        setLoading(false)
       }
     })
   }, [])
+
+  const calculateUsageHours = (start: string, end: string, alwaysOn: boolean) => {
+    if (alwaysOn) return { daily: 24, peak: 0, offPeak: 24 }
+    
+    const startDate = new Date(`2000-01-01T${start}`)
+    const endDate = new Date(`2000-01-01T${end}`)
+    
+    let diff = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)
+    if (diff < 0) diff += 24
+    
+    // Simple peak/off-peak logic (assuming peak is 8am-10pm)
+    // This is a simplified calculation
+    return { daily: diff, peak: diff, offPeak: 0 }
+  }
 
   const handleSaveProfile = async () => {
     const formData = new FormData()
@@ -143,8 +166,7 @@ export default function ProfilePage() {
       setSavedMessage("Profile saved successfully!")
       setIsEditingUsername(false)
     }
-    getUser()
-  }, [router, supabase])
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -191,26 +213,6 @@ export default function ProfilePage() {
     }
   }
 
-  const handleSaveBill = async () => {
-    try {
-      // Use the server action to save bill details
-      await completeSetup(billAmount, billKwh, monthlyBudget)
-
-      setIsEditingBill(false)
-      toast({
-        title: "Bill details updated",
-        description: "Your electricity bill information has been saved.",
-      })
-    } catch (error) {
-      console.error('Error updating bill details:', error)
-      toast({
-        title: "Error",
-        description: "Failed to update bill details. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
-
   const handleSaveBudget = async () => {
     const result = await updateBudget(monthlyBudget)
     
@@ -222,7 +224,6 @@ export default function ProfilePage() {
     }
     setTimeout(() => setSavedMessage(""), 3000)
   }
-
 
   const handleSaveBill = async () => {
     const result = await updateProfileBill(billAmount, billKwh)
@@ -236,17 +237,15 @@ export default function ProfilePage() {
     setTimeout(() => setSavedMessage(""), 3000)
   }
 
-  const handleLogout = async () => {
-    await signout()
-  }
-
-  const isValueInvalid = (applianceName: string, field: 'quantity' | 'watt', value: number) => {
+  const isValueInvalid = (typeId: string, field: 'quantity' | 'watt', value: number) => {
+    if (value < 0) return true
     if (field === 'quantity') {
-      const maxUnits = applianceName.toLowerCase().includes("light") ? 200 : 50
-      return value > maxUnits || value < 1
+      if (value === 0) return false // Allow 0 during typing, but validate on submit
+      if (typeId === 'lights' && value > 200) return true
+      if (typeId !== 'lights' && value > 50) return true
     }
     if (field === 'watt') {
-      return value > 99999 || value < 1
+      if (value > 99999) return true
     }
     return false
   }
@@ -427,19 +426,6 @@ export default function ProfilePage() {
     return type ? type.icon : Zap
   }
 
-  const isValueInvalid = (typeId: string, field: 'quantity' | 'watt', value: number) => {
-    if (value < 0) return true
-    if (field === 'quantity') {
-      if (value === 0) return false // Allow 0 during typing, but validate on submit
-      if (typeId === 'lights' && value > 200) return true
-      if (typeId !== 'lights' && value > 50) return true
-    }
-    if (field === 'watt') {
-      if (value > 99999) return true
-    }
-    return false
-  }
-
   if (loading) {
     return (
       <AppShell>
@@ -498,7 +484,7 @@ export default function ProfilePage() {
                 max="1000"
                 step="10"
                 value={monthlyBudget} 
-                onChange={(e) => setMonthlyBudget(e.target.value)} 
+                onChange={(e) => setMonthlyBudget(parseFloat(e.target.value) || 0)} 
                 disabled={!isEditingBudget}
                 className={!isEditingBudget ? "bg-muted" : ""}
               />
@@ -567,7 +553,7 @@ export default function ProfilePage() {
                   min="0"
                   step="0.01"
                   value={billAmount} 
-                  onChange={(e) => setBillAmount(e.target.value)} 
+                  onChange={(e) => setBillAmount(parseFloat(e.target.value) || 0)} 
                   disabled={!isEditingBill}
                   className={!isEditingBill ? "bg-muted" : ""}
                 />
@@ -579,7 +565,7 @@ export default function ProfilePage() {
                   type="number" 
                   min="0"
                   value={billKwh} 
-                  onChange={(e) => setBillKwh(e.target.value)} 
+                  onChange={(e) => setBillKwh(parseFloat(e.target.value) || 0)} 
                   disabled={!isEditingBill}
                   className={!isEditingBill ? "bg-muted" : ""}
                 />
@@ -785,129 +771,105 @@ export default function ProfilePage() {
               </p>
             ) : (
               <div className="space-y-4">
-                {appliances.map((appliance, index) => {
+                {appliances.map((appliance) => {
                   const Icon = getIcon(appliance.name)
                   const isEditing = editingId === appliance.id
-                  return (
-                    <div key={appliance.id}>
-                      {index > 0 && <Separator className="mb-4" />}
-                      <div className="space-y-4">
+                  
+                  if (isEditing) {
+                    return (
+                      <div key={appliance.id} className="flex flex-col gap-4 p-4 border rounded-lg bg-muted/30">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                            <div className="p-2 bg-primary/10 rounded-full">
                               <Icon className="h-5 w-5 text-primary" />
                             </div>
-                            <div>
-                              <p className="font-medium">{appliance.name}</p>
-                              <p className="text-xs text-muted-foreground">ID: {appliance.id}</p>
-                            </div>
+                            <span className="font-medium">{appliance.name}</span>
                           </div>
                           <div className="flex gap-2">
-                              {isEditing ? (
-                                  <>
-                                    <Button size="sm" onClick={() => handleUpdateAppliance(appliance.id)}>Save</Button>
-                                    <Button size="sm" variant="ghost" onClick={() => toggleEdit(appliance.id)}>Cancel</Button>
-                                  </>
-                              ) : (
-                                  <Button size="sm" variant="outline" onClick={() => toggleEdit(appliance.id)}>Edit</Button>
-                              )}
-                              <Button variant="ghost" size="icon" onClick={() => handleRemoveAppliance(appliance.id)}>
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 ml-13">
-                          <div className="space-y-2">
-                            <Label htmlFor={`${appliance.id}-count`} className="text-sm">
-                              Units
-                            </Label>
-                            <Input
-                              id={`${appliance.id}-count`}
-                              type="number"
-                              min="1"
-                              value={appliance.quantity}
-                              disabled={!isEditing}
-                              onChange={(e) => {
-                                const value = Number.parseInt(e.target.value) || 1
-                                updateLocalAppliance(appliance.id, "quantity", value)
-                              }}
-                              className={cn(
-                                isEditing && isValueInvalid(appliance.name, 'quantity', appliance.quantity) && "border-red-500 ring-2 ring-red-500/20"
-                              )}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor={`${appliance.id}-watt`} className="text-sm">
-                              Power (Watts)
-                            </Label>
-                            <Input
-                              id={`${appliance.id}-watt`}
-                              type="number"
-                              min="0"
-                              value={appliance.watt}
-                              disabled={!isEditing}
-                              onChange={(e) => {
-                                const value = Number.parseFloat(e.target.value) || 0
-                                updateLocalAppliance(appliance.id, "watt", value)
-                              }}
-                              className={cn(
-                                isEditing && isValueInvalid(appliance.name, 'watt', appliance.watt) && "border-red-500 ring-2 ring-red-500/20"
-                              )}
-                            />
+                            <Button size="sm" onClick={() => handleUpdateAppliance(appliance.id)}>
+                              <Save className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => toggleEdit(appliance.id)}>
+                              Cancel
+                            </Button>
                           </div>
                         </div>
                         
-                        {isEditing && (
-                          <div className="ml-13 space-y-3 border rounded-lg p-3 bg-muted/30 mt-4">
-                            <div className="flex items-center space-x-2 mb-3">
-                                <input
-                                  type="checkbox"
-                                  id={`${appliance.id}-always-on`}
-                                  checked={appliance.alwaysOn}
-                                  onChange={(e) => updateLocalAppliance(appliance.id, "alwaysOn", e.target.checked)}
-                                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                />
-                                <Label htmlFor={`${appliance.id}-always-on`} className="text-sm cursor-pointer">Always On (24 Hours)</Label>
-                            </div>
-                            <div className={cn("grid grid-cols-2 gap-4", appliance.alwaysOn && "opacity-50 pointer-events-none")}>
-                                <div className="space-y-2">
-                                    <Label className="text-xs">Start Time</Label>
-                                    <Input 
-                                      type="time" 
-                                      value={appliance.startTime} 
-                                      onChange={(e) => updateLocalAppliance(appliance.id, "startTime", e.target.value)} 
-                                      disabled={appliance.alwaysOn}
-                                      className="h-8"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-xs">End Time</Label>
-                                    <Input 
-                                      type="time" 
-                                      value={appliance.endTime} 
-                                      onChange={(e) => updateLocalAppliance(appliance.id, "endTime", e.target.value)} 
-                                      disabled={appliance.alwaysOn}
-                                      className="h-8"
-                                    />
-                                </div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Quantity</Label>
+                            <Input 
+                              type="number" 
+                              min="1" 
+                              value={appliance.quantity} 
+                              onChange={(e) => updateLocalAppliance(appliance.id, 'quantity', parseInt(e.target.value) || 1)}
+                            />
                           </div>
-                        )}
-
-                        <div className="grid grid-cols-3 gap-4 mt-2 text-sm ml-13">
-                            <div>
-                                <span className="text-muted-foreground">Daily: </span>
-                                <span className="font-medium">{appliance.daily_usage_hours?.toFixed(2) || 0}h</span>
-                            </div>
-                            <div>
-                                <span className="text-muted-foreground">Peak: </span>
-                                <span className="font-medium text-chart-3">{appliance.peak_usage_hours?.toFixed(2) || 0}h</span>
-                            </div>
-                            <div>
-                                <span className="text-muted-foreground">Off-Peak: </span>
-                                <span className="font-medium text-chart-1">{appliance.off_peak_usage_hours?.toFixed(2) || 0}h</span>
-                            </div>
+                          <div className="space-y-2">
+                            <Label>Power (Watts)</Label>
+                            <Input 
+                              type="number" 
+                              min="0" 
+                              value={appliance.watt} 
+                              onChange={(e) => updateLocalAppliance(appliance.id, 'watt', parseFloat(e.target.value) || 0)}
+                            />
+                          </div>
                         </div>
+
+                        <div className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={appliance.alwaysOn}
+                              onChange={(e) => updateLocalAppliance(appliance.id, 'alwaysOn', e.target.checked)}
+                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            />
+                            <Label className="text-sm cursor-pointer">Always On (24 Hours)</Label>
+                        </div>
+
+                        <div className={cn("grid grid-cols-2 gap-4", appliance.alwaysOn && "opacity-50 pointer-events-none")}>
+                          <div className="space-y-2">
+                            <Label>Start Time</Label>
+                            <Input 
+                              type="time" 
+                              value={appliance.startTime || "18:00"} 
+                              onChange={(e) => updateLocalAppliance(appliance.id, 'startTime', e.target.value)}
+                              disabled={appliance.alwaysOn}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>End Time</Label>
+                            <Input 
+                              type="time" 
+                              value={appliance.endTime || "22:00"} 
+                              onChange={(e) => updateLocalAppliance(appliance.id, 'endTime', e.target.value)}
+                              disabled={appliance.alwaysOn}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div key={appliance.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="p-2 bg-primary/10 rounded-full">
+                          <Icon className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{appliance.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {appliance.quantity} units • {appliance.watt}W • {appliance.daily_usage_hours?.toFixed(1)}h/day
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="icon" variant="ghost" onClick={() => toggleEdit(appliance.id)}>
+                          <Zap className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleRemoveAppliance(appliance.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   )
