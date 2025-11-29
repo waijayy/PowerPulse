@@ -172,14 +172,14 @@ export default function InsightsPage() {
       <div className="container max-w-6xl mx-auto px-4 py-6 md:py-8 space-y-6">
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-3xl font-bold tracking-tight">Energy Insights & Plan</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Energy Insights</h1>
             {isSimulationMode && (
               <Badge variant="outline" className="bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800">
                 Simulation Mode
               </Badge>
             )}
           </div>
-          <p className="text-muted-foreground">Track your progress and optimize your energy usage schedule</p>
+          {/* <p className="text-muted-foreground">Track your progress and optimize your energy usage schedule</p> */}
         </div>
 
         {/* Phantom Load Detection Alert Card */}
