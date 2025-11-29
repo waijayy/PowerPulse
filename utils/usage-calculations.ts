@@ -18,6 +18,15 @@ export function calculateUsageBreakdown(startTimeStr: string, endTimeStr: string
         return { dailyUsage: 0, peakUsage: 0, offPeakUsage: 0 }
     }
 
+    // Check if it's effectively 24 hours (Always On: 00:00 to 23:59)
+    if (startTimeStr === "00:00" && endTimeStr === "23:59") {
+        return {
+            dailyUsage: 24,
+            peakUsage: 14,  // 14:00 to 22:00 = 8 hours peak
+            offPeakUsage: 10  // Remaining 16 hours off-peak
+        }
+    }
+
     const parseMinutes = (timeStr: string) => {
         const [hours, minutes] = timeStr.split(':').map(Number)
         return hours * 60 + minutes

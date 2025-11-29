@@ -102,3 +102,29 @@ export async function updateProfileBill(amount: number, kwh: number) {
     revalidatePath('/profile')
     return { success: true }
 }
+export async function completeSetup(billAmount: number, billKwh: number, budgetTarget: number) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: 'User not logged in' }
+    }
+
+    const { error } = await supabase
+        .from('profiles')
+        .upsert({
+            id: user.id,
+            total_bill_amount: billAmount,
+            total_kwh_usage: billKwh,
+            monthly_budget_target: budgetTarget,
+            updated_at: new Date().toISOString(),
+        })
+
+    if (error) {
+        console.error('Error completing setup:', error)
+        return { error: 'Failed to save setup details' }
+    }
+
+    revalidatePath('/dashboard')
+    return { success: true }
+}

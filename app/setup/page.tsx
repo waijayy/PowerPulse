@@ -29,6 +29,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { addAppliance } from "../appliances/actions"
+import { completeSetup } from "../profile/actions"
 import { calculateUsageBreakdown } from "@/utils/usage-calculations"
 
 type ApplianceData = {
@@ -84,13 +85,29 @@ export default function SetupPage() {
   }
 
   const updateApplianceData = (id: string, field: string, value: number | boolean | string) => {
-    setAppliances((prev) => ({
-      ...prev,
-      [id]: {
+    setAppliances((prev) => {
+      const updatedApp = {
         ...prev[id],
         [field]: value,
-      },
-    }))
+      }
+
+      // Handle Always On logic
+      if (field === "alwaysOn") {
+        if (value === true) {
+          updatedApp.startTime = "00:00"
+          updatedApp.endTime = "23:59" // Effectively 24h
+        } else {
+          // Reset to default evening hours if unchecked
+          updatedApp.startTime = "18:00"
+          updatedApp.endTime = "22:00"
+        }
+      }
+
+      return {
+        ...prev,
+        [id]: updatedApp,
+      }
+    })
   }
 
   const isValueInvalid = (applianceId: string, field: 'count' | 'watt', value: number) => {
@@ -146,8 +163,18 @@ export default function SetupPage() {
         formData.append("usage_start_time", app.startTime)
         formData.append("usage_end_time", app.endTime)
         
-        // Calculate usage for fallback/legacy support (though server handles it too)
-        const breakdown = calculateUsageBreakdown(app.startTime, app.endTime)
+        // Calculate usage
+        let breakdown;
+        if (app.alwaysOn) {
+           breakdown = {
+             dailyUsage: 24,
+             peakUsage: 14, // 8am - 10pm is 14 hours
+             offPeakUsage: 10 // Rest is 10 hours
+           }
+        } else {
+           breakdown = calculateUsageBreakdown(app.startTime, app.endTime)
+        }
+        
         formData.append("daily_usage_hours", breakdown.dailyUsage.toString())
         formData.append("peak_usage_hours", breakdown.peakUsage.toString())
         formData.append("off_peak_usage_hours", breakdown.offPeakUsage.toString())
@@ -157,18 +184,15 @@ export default function SetupPage() {
 
       await Promise.all(promises)
 
-      // Save other settings to local storage for now (or update profile if we had fields)
-      if (typeof window !== "undefined") {
-        localStorage.setItem(
-          "powerPulseSetup",
-          JSON.stringify({
-            budgetTarget: budgetTarget[0],
-            touPlan: isTouPlan,
-            billAmount: billAmount,
-            billKwh: billKwh,
-            completedAt: new Date().toISOString(),
-          }),
-        )
+      // Save profile details to database
+      const result = await completeSetup(
+        parseFloat(billAmount),
+        parseFloat(billKwh),
+        budgetTarget[0]
+      )
+
+      if (result.error) {
+        throw new Error(result.error)
       }
       
       router.push("/dashboard")
@@ -283,9 +307,14 @@ export default function SetupPage() {
                   const data = appliances[appliance.id]
                   
                   // Calculate breakdown for display
-                  const breakdown = isSelected 
-                    ? calculateUsageBreakdown(data.startTime, data.endTime)
-                    : { dailyUsage: 0, peakUsage: 0, offPeakUsage: 0 }
+                  let breakdown;
+                  if (data && data.alwaysOn) {
+                    breakdown = { dailyUsage: 24, peakUsage: 14, offPeakUsage: 10 }
+                  } else {
+                    breakdown = isSelected 
+                      ? calculateUsageBreakdown(data.startTime, data.endTime)
+                      : { dailyUsage: 0, peakUsage: 0, offPeakUsage: 0 }
+                  }
 
                   return (
                     <div key={appliance.id} className="space-y-3">
@@ -371,7 +400,7 @@ export default function SetupPage() {
                               <Clock className="h-4 w-4 text-primary" />
                               Usage Schedule
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className={cn("grid grid-cols-2 gap-4", data.alwaysOn && "opacity-50 pointer-events-none")}>
                               <div className="space-y-2">
                                 <Label htmlFor={`${appliance.id}-start`} className="text-xs text-muted-foreground">
                                   Start Time
@@ -382,6 +411,7 @@ export default function SetupPage() {
                                   value={data.startTime}
                                   onChange={(e) => updateApplianceData(appliance.id, "startTime", e.target.value)}
                                   className="h-8"
+                                  disabled={data.alwaysOn}
                                 />
                               </div>
                               <div className="space-y-2">
@@ -394,6 +424,7 @@ export default function SetupPage() {
                                   value={data.endTime}
                                   onChange={(e) => updateApplianceData(appliance.id, "endTime", e.target.value)}
                                   className="h-8"
+                                  disabled={data.alwaysOn}
                                 />
                               </div>
                             </div>
@@ -413,23 +444,21 @@ export default function SetupPage() {
                               </div>
                             </div>
                           </div>
-
-                          {appliance.id === "ac" && (
-                            <div className="flex items-end pt-2">
-                              <div className="flex items-center space-x-2">
-                                <Checkbox
-                                  id={`${appliance.id}-always-on`}
-                                  checked={data.alwaysOn}
-                                  onCheckedChange={(checked) =>
-                                    updateApplianceData(appliance.id, "alwaysOn", checked as boolean)
-                                  }
-                                />
-                                <Label htmlFor={`${appliance.id}-always-on`} className="text-sm cursor-pointer">
-                                  Always On
-                                </Label>
-                              </div>
+                          
+                          <div className="flex items-end pt-2">
+                            <div className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`${appliance.id}-always-on`}
+                                checked={data.alwaysOn}
+                                onCheckedChange={(checked) =>
+                                  updateApplianceData(appliance.id, "alwaysOn", checked as boolean)
+                                }
+                              />
+                              <Label htmlFor={`${appliance.id}-always-on`} className="text-sm cursor-pointer">
+                                Always On (24 Hours)
+                              </Label>
                             </div>
-                          )}
+                          </div>
                         </div>
                       )}
                     </div>
