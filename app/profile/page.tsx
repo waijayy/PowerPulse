@@ -82,11 +82,11 @@ export default function ProfilePage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [isEditingUsername, setIsEditingUsername] = useState(false)
   const [isEditingBudget, setIsEditingBudget] = useState(false)
-  const [monthlyBudget, setMonthlyBudget] = useState(150)
+  const [monthlyBudget, setMonthlyBudget] = useState("150")
   
   // Bill Details State
-  const [billAmount, setBillAmount] = useState(0)
-  const [billKwh, setBillKwh] = useState(0)
+  const [billAmount, setBillAmount] = useState("0")
+  const [billKwh, setBillKwh] = useState("0")
   const [isEditingBill, setIsEditingBill] = useState(false)
   
   // New Appliance Form State
@@ -118,9 +118,9 @@ export default function ProfilePage() {
           .then(({ data: profile }) => {
             if (profile) {
               if (profile.username) setName(profile.username)
-              if (profile.monthly_budget_target) setMonthlyBudget(profile.monthly_budget_target)
-              if (profile.total_bill_amount) setBillAmount(profile.total_bill_amount)
-              if (profile.total_kwh_usage) setBillKwh(profile.total_kwh_usage)
+            if (profile.monthly_budget_target) setMonthlyBudget(profile.monthly_budget_target.toString())
+            if (profile.total_bill_amount) setBillAmount(profile.total_bill_amount.toString())
+            if (profile.total_kwh_usage) setBillKwh(profile.total_kwh_usage.toString())
             }
           })
       }
@@ -173,7 +173,8 @@ export default function ProfilePage() {
   }
 
   const handleSaveBudget = async () => {
-    const result = await updateBudget(monthlyBudget)
+    const amount = parseFloat(monthlyBudget || "0") || 0
+    const result = await updateBudget(amount)
     
     if (result.error) {
       setSavedMessage(result.error)
@@ -186,7 +187,9 @@ export default function ProfilePage() {
 
 
   const handleSaveBill = async () => {
-    const result = await updateProfileBill(billAmount, billKwh)
+    const amount = parseFloat(billAmount || "0") || 0
+    const kwh = parseFloat(billKwh || "0") || 0
+    const result = await updateProfileBill(amount, kwh)
     
     if (result.error) {
       setSavedMessage(result.error)
@@ -471,12 +474,12 @@ export default function ProfilePage() {
                 max="1000"
                 step="10"
                 value={monthlyBudget} 
-                onChange={(e) => setMonthlyBudget(parseFloat(e.target.value) || 150)} 
+                onChange={(e) => setMonthlyBudget(e.target.value)} 
                 disabled={!isEditingBudget}
                 className={!isEditingBudget ? "bg-muted" : ""}
               />
               <p className="text-xs text-muted-foreground">
-                Your current target: RM {monthlyBudget}
+                Your current target: RM {monthlyBudget || "0"}
               </p>
             </div>
             <div className="flex gap-2">
@@ -540,7 +543,7 @@ export default function ProfilePage() {
                   min="0"
                   step="0.01"
                   value={billAmount} 
-                  onChange={(e) => setBillAmount(parseFloat(e.target.value) || 0)} 
+                  onChange={(e) => setBillAmount(e.target.value)} 
                   disabled={!isEditingBill}
                   className={!isEditingBill ? "bg-muted" : ""}
                 />
@@ -552,7 +555,7 @@ export default function ProfilePage() {
                   type="number" 
                   min="0"
                   value={billKwh} 
-                  onChange={(e) => setBillKwh(parseFloat(e.target.value) || 0)} 
+                  onChange={(e) => setBillKwh(e.target.value)} 
                   disabled={!isEditingBill}
                   className={!isEditingBill ? "bg-muted" : ""}
                 />
