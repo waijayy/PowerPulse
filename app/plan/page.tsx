@@ -26,8 +26,12 @@ import {
   User,
   ArrowRight,
   Zap,
-  Bot
+  Bot,
+  Pencil,
+  Check,
+  X
 } from "lucide-react";
+import { updateBudget } from "../profile/actions";
 
 type ApplianceData = {
   id: number;
@@ -76,6 +80,8 @@ export default function PlanPage() {
   const [appliances, setAppliances] = useState<ApplianceData[]>([]);
   const [currentBill, setCurrentBill] = useState(0);
   const [targetBill, setTargetBill] = useState(120);
+  const [tempTargetBill, setTempTargetBill] = useState(120);
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [lastMonthBill, setLastMonthBill] = useState(0);
   const [activeTab, setActiveTab] = useState<"weekday" | "weekend">("weekday");
   
@@ -104,6 +110,7 @@ export default function PlanPage() {
           if (data.profile) {
             setLastMonthBill(data.profile.total_bill_amount || 0);
             setTargetBill(data.profile.monthly_budget_target || 150);
+            setTempTargetBill(data.profile.monthly_budget_target || 150);
           }
 
           if (data.appliances && data.appliances.length > 0) {
@@ -193,6 +200,26 @@ export default function PlanPage() {
     return Icon;
   };
 
+  const handleEditTarget = () => {
+    setTempTargetBill(targetBill);
+    setIsEditingTarget(true);
+  };
+
+  const handleCancelTarget = () => {
+    setTempTargetBill(targetBill);
+    setIsEditingTarget(false);
+  };
+
+  const handleSaveTarget = async () => {
+    const res = await updateBudget(tempTargetBill);
+    if (res.success) {
+      setTargetBill(tempTargetBill);
+      setIsEditingTarget(false);
+    } else {
+      console.error("Failed to save budget");
+    }
+  };
+
   const potentialSavings = generatedPlan ? generatedPlan.total_savings : Math.max(0, lastMonthBill - targetBill);
   const displayedBill = generatedPlan?.projected_bill || currentBill;
   const progressPercent = Math.min((displayedBill / targetBill) * 100, 100);
@@ -262,16 +289,39 @@ export default function PlanPage() {
                   <Target className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-muted-foreground">Target Next Month</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-2xl font-bold">RM</span>
-                    <Input
-                      type="number"
-                      value={targetBill}
-                      onChange={(e) => setTargetBill(parseFloat(e.target.value) || 0)}
-                      className="w-28 h-10 text-2xl font-bold border-0 p-0 focus-visible:ring-0"
-                    />
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">Target Next Month</p>
+                    {isEditingTarget ? (
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={handleSaveTarget}>
+                          <Check className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50" onClick={handleCancelTarget}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary" onClick={handleEditTarget}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
+                  
+                  {isEditingTarget ? (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-2xl font-bold">RM</span>
+                      <Input
+                        type="number"
+                        value={tempTargetBill}
+                        onChange={(e) => setTempTargetBill(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-9 text-lg font-bold"
+                        autoFocus
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-3xl font-bold mt-1">RM {targetBill.toFixed(2)}</p>
+                  )}
+                  
                   <p className="text-xs text-muted-foreground mt-1">Your savings goal</p>
                 </div>
               </div>
