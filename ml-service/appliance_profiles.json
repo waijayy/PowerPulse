@@ -1,0 +1,34 @@
+{
+    "Fridge": {
+        "phantom_power_watts": 1.0,
+        "active_threshold_watts": 703.97
+    },
+    "Washing Machine": {
+        "phantom_power_watts": 1.0,
+        "active_threshold_watts": 1468.88
+    },
+    "Computer/PC": {
+        "phantom_power_watts": 2.79,
+        "active_threshold_watts": 92.92
+    },
+    "Television": {
+        "phantom_power_watts": 1.0,
+        "active_threshold_watts": 79.67
+    },
+    "Microwave": {
+        "phantom_power_watts": 1.07,
+        "active_threshold_watts": 781.86
+    },
+    "Air Conditioner": {
+        "phantom_power_watts": 1.0,
+        "active_threshold_watts": 1382.45
+    },
+    "Ceiling Fan": {
+        "phantom_power_watts": 1.0,
+        "active_threshold_watts": 145.4
+    },
+    "LED Lights": {
+        "phantom_power_watts": 0.0,
+        "active_threshold_watts": 5.0
+    }
+}
