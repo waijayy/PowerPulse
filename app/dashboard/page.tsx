@@ -6,11 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertTriangle, TrendingUp, Activity } from "lucide-react"
+import { AlertTriangle, TrendingUp, Activity, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
 import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
 import { createClient } from "@/utils/supabase/client"
+import { getUsageStats, type UsageStatsResult } from "@/lib/ml-api"
 
 const generateUsageData = () => {
   const now = new Date()
@@ -26,25 +27,39 @@ const generateUsageData = () => {
   return data
 }
 
-// Generate weekly data (last 7 days)
-const generateWeeklyData = () => {
+const generateWeeklyDataFromStats = (stats: UsageStatsResult | null) => {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  if (!stats || !stats.appliances) {
+    return days.map((day) => ({
+      label: day,
+      usage: Math.random() * 6 + 16,
+      target: 20,
+    }))
+  }
+  
+  const totalActiveHours = stats.summary?.total_active_hours || 100
+  const avgDailyUsage = totalActiveHours / 7
+  
   return days.map((day, index) => ({
     label: day,
-    usage: Math.random() * 6 + 16, // 16-22 kWh
+    usage: avgDailyUsage * (0.8 + Math.random() * 0.4),
     target: 20,
   }))
 }
 
-// Generate monthly data (last 30 days)
-const generateMonthlyData = () => {
+const generateMonthlyDataFromStats = (stats: UsageStatsResult | null) => {
   const data = []
   const now = new Date()
+  
+  const baseUsage = stats?.summary?.total_active_hours 
+    ? stats.summary.total_active_hours / 30 
+    : 18
+  
   for (let i = 29; i >= 0; i--) {
     const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
     data.push({
       label: `${date.getMonth() + 1}/${date.getDate()}`,
-      usage: Math.random() * 6 + 16, // 16-22 kWh
+      usage: baseUsage * (0.7 + Math.random() * 0.6),
       target: 20,
     })
   }
@@ -53,32 +68,37 @@ const generateMonthlyData = () => {
 
 type GridStatus = "healthy" | "warning" | "critical"
 
-const getGridStatus = (): GridStatus => {
-  const hour = new Date().getHours()
+const getGridStatus = (hour: number): GridStatus => {
   if (hour >= 18 && hour <= 22) {
-    return Math.random() > 0.5 ? "critical" : "warning"
+    return hour % 2 === 0 ? "critical" : "warning"
   } else if (hour >= 8 && hour <= 18) {
-    return Math.random() > 0.7 ? "warning" : "healthy"
+    return hour % 3 === 0 ? "warning" : "healthy"
   }
   return "healthy"
 }
 
 export default function DashboardPage() {
-  const [usageData, setUsageData] = useState(generateUsageData())
-  const [gridStatus, setGridStatus] = useState<GridStatus>(getGridStatus())
+  const [usageData, setUsageData] = useState<Array<{ time: string; usage: number; limit: number }>>([])
+  const [gridStatus, setGridStatus] = useState<GridStatus>("healthy")
   const [currentUsage, setCurrentUsage] = useState(85)
   const [budgetTarget, setBudgetTarget] = useState(150)
   const [viewMode, setViewMode] = useState<"week" | "month">("week")
-  const [trendData, setTrendData] = useState(generateWeeklyData())
+  const [trendData, setTrendData] = useState<Array<{ label: string; usage: number; target: number }>>([])
+  const [mlStats, setMlStats] = useState<UsageStatsResult | null>(null)
+  const [phantomHours, setPhantomHours] = useState(0)
+  const [isClient, setIsClient] = useState(false)
 
   useEffect(() => {
+    setIsClient(true)
+    setUsageData(generateUsageData())
+    setGridStatus(getGridStatus(new Date().getHours()))
+    
     const interval = setInterval(() => {
       setUsageData(generateUsageData())
-      setGridStatus(getGridStatus())
+      setGridStatus(getGridStatus(new Date().getHours()))
       setCurrentUsage((prev) => Math.min(prev + Math.random() * 2 - 0.5, 100))
     }, 5000)
 
-    // Fetch budget target from database
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
@@ -95,17 +115,31 @@ export default function DashboardPage() {
       }
     })
 
+    async function loadMLStats() {
+      try {
+        const stats = await getUsageStats()
+        setMlStats(stats)
+        if (stats.summary) {
+          setPhantomHours(stats.summary.total_phantom_hours || 0)
+        }
+        setTrendData(generateWeeklyDataFromStats(stats))
+      } catch (err) {
+        console.error("ML service not available, using fallback data")
+        setTrendData(generateWeeklyDataFromStats(null))
+      }
+    }
+    loadMLStats()
+
     return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
-    // Update trend data when view mode changes
     if (viewMode === "week") {
-      setTrendData(generateWeeklyData())
+      setTrendData(generateWeeklyDataFromStats(mlStats))
     } else {
-      setTrendData(generateMonthlyData())
+      setTrendData(generateMonthlyDataFromStats(mlStats))
     }
-  }, [viewMode])
+  }, [viewMode, mlStats])
 
   const budgetProgress = (currentUsage / budgetTarget) * 100
   const isNearLimit = budgetProgress > 75
@@ -142,7 +176,7 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="container mx-auto px-4 py-6 md:py-8 space-y-6">
-        <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-2">
+        <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-3">
           <Card className={cn("border-2", currentGridConfig.borderColor)}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -190,6 +224,40 @@ export default function DashboardPage() {
                 />
               </div>
               <p className="text-sm text-muted-foreground">{budgetProgress.toFixed(0)}% of monthly target used</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-yellow-500/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-medium">Phantom Load Sources</CardTitle>
+                <Zap className="h-5 w-5 text-yellow-500" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {mlStats?.appliances ? (
+                <>
+                  <div className="space-y-2">
+                    {Object.entries(mlStats.appliances)
+                      .filter(([_, data]: [string, any]) => data.wasted_kwh > 0.1)
+                      .sort((a: any, b: any) => b[1].wasted_kwh - a[1].wasted_kwh)
+                      .slice(0, 3)
+                      .map(([name, data]: [string, any]) => (
+                        <div key={name} className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">{name}</span>
+                          <Badge variant="outline" className="text-yellow-600 bg-yellow-500/10">
+                            {data.wasted_kwh.toFixed(2)} kWh wasted
+                          </Badge>
+                        </div>
+                      ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-2 border-t">
+                    Appliances wasting energy in standby mode
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Loading ML data...</p>
+              )}
             </CardContent>
           </Card>
         </div>

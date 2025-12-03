@@ -5,9 +5,14 @@ import { AppShell } from "@/components/app-shell"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { TrendingUp, TrendingDown, Zap, Clock, Battery, AlertCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Slider } from "@/components/ui/slider"
+import { Label } from "@/components/ui/label"
+import { TrendingUp, TrendingDown, Zap, Clock, Battery, AlertCircle, Search, Loader2 } from "lucide-react"
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { cn } from "@/lib/utils"
+import { predictPhantomLoad, getUsageStats, type PhantomDetectionResult, type UsageStatsResult } from "@/lib/ml-api"
+import { getAppliances } from "../appliances/actions"
 
 const scheduleItems = [
   {
@@ -40,15 +45,30 @@ const scheduleItems = [
   },
 ]
 
-const wasteData = [
-  { name: "Active Usage", value: 65, color: "rgb(37 99 235)" },
-  { name: "Phantom Load", value: 20, color: "rgb(234 179 8)" },
-  { name: "Inefficient Appliances", value: 15, color: "rgb(239 68 68)" },
-]
+const APPLIANCE_TYPE_MAP: Record<string, string> = {
+  "Air Conditioner": "Air Conditioner",
+  "Refrigerator": "Fridge",
+  "Washing Machine": "Washing Machine",
+  "Television": "Television",
+  "Computer/PC": "Computer/PC",
+  "LED Lights": "LED Lights",
+  "Microwave": "Microwave",
+  "Ceiling Fan": "Ceiling Fan",
+}
 
 export default function InsightsPage() {
   const [currentUsage, setCurrentUsage] = useState(85)
   const [budgetTarget, setBudgetTarget] = useState(150)
+  const [meterReading, setMeterReading] = useState([5])
+  const [isScanning, setIsScanning] = useState(false)
+  const [detectionResult, setDetectionResult] = useState<PhantomDetectionResult | null>(null)
+  const [usageStats, setUsageStats] = useState<UsageStatsResult | null>(null)
+  const [userAppliances, setUserAppliances] = useState<Array<{ type: string; rated_watts: number }>>([])
+  const [wasteData, setWasteData] = useState([
+    { name: "Active Usage", value: 65, color: "rgb(37 99 235)" },
+    { name: "Phantom Load", value: 20, color: "rgb(234 179 8)" },
+    { name: "Inefficient Appliances", value: 15, color: "rgb(239 68 68)" },
+  ])
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -58,7 +78,62 @@ export default function InsightsPage() {
         setBudgetTarget(data.budgetTarget || 150)
       }
     }
+
+    async function loadAppliances() {
+      try {
+        const appliances = await getAppliances()
+        const mapped = appliances.map((app: { name: string; watt: number }) => ({
+          type: APPLIANCE_TYPE_MAP[app.name] || app.name,
+          rated_watts: app.watt || 0,
+        }))
+        setUserAppliances(mapped)
+      } catch (err) {
+        console.error("Failed to load appliances:", err)
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const stats = await getUsageStats()
+        setUsageStats(stats)
+        if (stats.summary) {
+          const activePercent = stats.summary.active_usage_percent || 65
+          const phantomPercent = stats.summary.phantom_usage_percent || 20
+          const inefficientPercent = Math.max(0, 100 - activePercent - phantomPercent)
+          setWasteData([
+            { name: "Active Usage", value: activePercent, color: "rgb(37 99 235)" },
+            { name: "Phantom Load", value: phantomPercent, color: "rgb(234 179 8)" },
+            { name: "Inefficient Appliances", value: inefficientPercent, color: "rgb(239 68 68)" },
+          ])
+        }
+      } catch (err) {
+        console.error("ML service not available, using default data")
+      }
+    }
+
+    loadAppliances()
+    loadStats()
   }, [])
+
+  const handleScan = async () => {
+    if (userAppliances.length === 0) return
+    setIsScanning(true)
+    try {
+      const result = await predictPhantomLoad(meterReading[0], userAppliances)
+      setDetectionResult(result)
+    } catch (err) {
+      console.error("ML service not available")
+      setDetectionResult({
+        input_reading_watts: meterReading[0],
+        detected_appliances: [],
+        total_phantom_watts: 0,
+        error_margin: 0,
+        is_valid_detection: false
+      })
+    } finally {
+      setIsScanning(false)
+    }
+  }
 
   const budgetProgress = (currentUsage / budgetTarget) * 100
   const daysInMonth = 30
@@ -77,66 +152,92 @@ export default function InsightsPage() {
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Budget Progress</CardTitle>
-              <CardDescription>Your monthly spending vs. target</CardDescription>
+              <CardTitle>Phantom Load Detector</CardTitle>
+              <CardDescription>Simulate a smart meter reading to detect standby power waste</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-end justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Current Spending</p>
-                    <p className="text-3xl font-bold">RM {currentUsage.toFixed(2)}</p>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Simulated Meter Reading</Label>
+                    <span className="text-2xl font-bold text-primary">{meterReading[0]} W</span>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm text-muted-foreground">Target</p>
-                    <p className="text-2xl font-semibold text-muted-foreground">RM {budgetTarget}</p>
-                  </div>
+                  <Slider
+                    value={meterReading}
+                    onValueChange={setMeterReading}
+                    min={0}
+                    max={15}
+                    step={0.5}
+                    className="[&_[role=slider]]:bg-primary"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Simulate standby power reading (typical range: 1-10W)
+                  </p>
                 </div>
-                <Progress
-                  value={budgetProgress}
-                  className={cn(
-                    "h-3",
-                    budgetProgress > 90
-                      ? "[&>div]:bg-chart-3"
-                      : budgetProgress > 75
-                        ? "[&>div]:bg-chart-4"
-                        : "[&>div]:bg-chart-1",
+                <Button 
+                  onClick={handleScan} 
+                  disabled={isScanning || userAppliances.length === 0}
+                  className="w-full"
+                >
+                  {isScanning ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="h-4 w-4 mr-2" />
+                      Detect Phantom Load
+                    </>
                   )}
-                />
-                <p className="text-sm text-muted-foreground">{budgetProgress.toFixed(1)}% of budget used</p>
+                </Button>
               </div>
 
-              <div
-                className={cn(
-                  "flex items-center gap-2 p-3 rounded-lg",
-                  isOnTrack ? "bg-chart-1/10 text-chart-1" : "bg-chart-3/10 text-chart-3",
-                )}
-              >
-                {isOnTrack ? (
-                  <>
-                    <TrendingDown className="h-5 w-5" />
-                    <div>
-                      <p className="font-semibold text-sm">On Track</p>
-                      <p className="text-xs opacity-90">You're using less than expected for day {currentDay}</p>
+              {detectionResult && (
+                <div className="space-y-3 pt-4 border-t">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Detection Status</span>
+                    <Badge variant={detectionResult.is_valid_detection ? "default" : "secondary"}>
+                      {detectionResult.is_valid_detection ? "Match Found" : "No Match"}
+                    </Badge>
+                  </div>
+                  {detectionResult.is_valid_detection && detectionResult.detected_appliances.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Devices in Standby:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {detectionResult.detected_appliances.map((app) => (
+                          <Badge key={app} variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
+                            <Zap className="h-3 w-3 mr-1" />
+                            {app}
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Estimated phantom load: <span className="font-semibold">{detectionResult.total_phantom_watts}W</span>
+                      </p>
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <TrendingUp className="h-5 w-5" />
-                    <div>
-                      <p className="font-semibold text-sm">Above Target</p>
-                      <p className="text-xs opacity-90">Consider reducing usage to stay within budget</p>
-                    </div>
-                  </>
-                )}
-              </div>
+                  )}
+                  {!detectionResult.is_valid_detection && (
+                    <p className="text-sm text-muted-foreground">
+                      Reading too high for phantom load detection. Typical standby power is under 10W total.
+                      Try a lower value (1-10W range).
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {userAppliances.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No appliances configured. Complete setup first.
+                </p>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <CardTitle>Energy Waste Analysis</CardTitle>
-              <CardDescription>Where your energy is going</CardDescription>
+              <CardDescription>Where your energy is going (based on REFIT data)</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="h-64">
@@ -165,7 +266,7 @@ export default function InsightsPage() {
                   <div key={index} className="flex flex-col items-center text-center">
                     <div className="w-3 h-3 rounded-full mb-1" style={{ backgroundColor: item.color }} />
                     <p className="text-xs font-medium">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">{item.value}%</p>
+                    <p className="text-xs text-muted-foreground">{item.value.toFixed(1)}%</p>
                   </div>
                 ))}
               </div>
