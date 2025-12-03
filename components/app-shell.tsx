@@ -4,7 +4,7 @@ import type React from "react"
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Zap, LayoutDashboard, Calculator, LineChart, Menu, User, LogOut, PieChart } from "lucide-react"
+import { Zap, LayoutDashboard, Calculator, LineChart, Menu, User, LogOut, PieChart, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import {

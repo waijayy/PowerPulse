@@ -87,11 +87,11 @@ export default function DashboardPage() {
   useEffect(() => {
     setIsClient(true)
     setUsageData(generateUsageData())
-    setGridStatus(getGridStatus(new Date().getHours()))
+    setGridStatus(getGridStatus())
     
     const interval = setInterval(() => {
       setUsageData(generateUsageData())
-      setGridStatus(getGridStatus(new Date().getHours()))
+      setGridStatus(getGridStatus())
       setCurrentUsage((prev) => Math.min(prev + Math.random() * 2 - 0.5, 100))
     }, 5000)
 
