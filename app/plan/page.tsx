@@ -31,8 +31,10 @@ import {
   Check,
   X,
   Banknote,
+  Save,
 } from "lucide-react";
 import { updateBudget } from "../profile/actions";
+import { useToast } from "@/components/ui/use-toast";
 
 type ApplianceData = {
   id: number;
@@ -92,12 +94,16 @@ export default function PlanPage() {
   const [tempTargetBill, setTempTargetBill] = useState("120");
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [lastMonthBill, setLastMonthBill] = useState(0);
-  const [expectedMonthlyCost, setExpectedMonthlyCost] = useState(0);
+
   const [activeTab, setActiveTab] = useState<"weekday" | "weekend">("weekday");
   const [showPlanner, setShowPlanner] = useState(false);
   const [hasGeneratedPlan, setHasGeneratedPlan] = useState(false);
 
+  const [isSaving, setIsSaving] = useState(false);
+  const { toast } = useToast();
+
   // Chat state
+  const [initialEstimatedCost, setInitialEstimatedCost] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -143,12 +149,14 @@ export default function PlanPage() {
               setTargetBill(data.profile.monthly_budget_target || 150);
               setTempTargetBill(data.profile.monthly_budget_target || 150);
             }
-            setExpectedMonthlyCost(data.profile.expected_monthly_cost || 0);
+
           }
 
           // Load saved planning data if it exists
           if (data.planning) {
             setGeneratedPlan(data.planning);
+            setHasGeneratedPlan(true);
+            setShowPlanner(true);
           }
 
           if (data.appliances && data.appliances.length > 0) {
@@ -189,6 +197,22 @@ export default function PlanPage() {
     loadPlanData();
   }, []);
 
+  // Calculate estimated bill from planning table data
+  // Use the projected_bill from saved plan, otherwise fallback to current bill
+  const calculateEstimatedBill = () => {
+    // If we have a generated/saved plan, use its projected_bill directly
+    if (generatedPlan?.projected_bill) {
+      return generatedPlan.projected_bill;
+    }
+
+    // If no plan exists, use current bill as fallback
+    return currentBill;
+  };
+
+  const displayedBill = calculateEstimatedBill();
+  const progressPercent = Math.min((displayedBill / targetBill) * 100, 100);
+  const isUnderBudget = displayedBill <= targetBill;
+
   async function handleChatSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -197,6 +221,11 @@ export default function PlanPage() {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setIsLoading(true);
+
+    // Capture the initial estimated cost before the first AI interaction
+    if (initialEstimatedCost === null) {
+      setInitialEstimatedCost(displayedBill);
+    }
 
     try {
       const res = await fetch("/api/plan", {
@@ -227,9 +256,8 @@ export default function PlanPage() {
         // Update the main display with the generated plan
         if (data.plan) {
           setGeneratedPlan(data);
-          setHasGeneratedPlan(true);
           setShowPlanner(true);
-          setExpectedMonthlyCost(data.projected_bill || 0);
+
         }
       }
     } catch {
@@ -270,7 +298,7 @@ export default function PlanPage() {
 
       // Clear old plan immediately so displayedBill recalculates based on new target
       setGeneratedPlan(null);
-      setExpectedMonthlyCost(0);
+
 
       // Automatically generate a new plan when target changes
       if (appliances.length > 0) {
@@ -297,9 +325,8 @@ export default function PlanPage() {
           } else {
             // Successfully generated new plan
             setGeneratedPlan(planData);
-            setHasGeneratedPlan(true);
             setShowPlanner(true);
-            setExpectedMonthlyCost(planData.projected_bill || 0);
+
 
             // Don't add automatic message - let user interact with chatbot when ready
             // Clear any existing messages so chatbot starts fresh
@@ -327,55 +354,48 @@ export default function PlanPage() {
     }
   };
 
-  const potentialSavings = Math.max(0, lastMonthBill - targetBill);
+  const handleSavePlan = async () => {
+    if (!generatedPlan) return;
+    
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/plan/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planData: generatedPlan,
+          targetBill: targetBill,
+        }),
+      });
 
-  // Calculate smart estimated bill based on target
-  // Always ensures the estimate is BELOW the target bill
-  const calculateEstimatedBill = () => {
-    // If we have a generated plan, use it but cap at target
-    if (generatedPlan?.projected_bill) {
-      return Math.min(generatedPlan.projected_bill, targetBill * 0.98);
-    }
-
-    // Use baseline (last month bill or current calculated bill)
-    const baseline = lastMonthBill > 0 ? lastMonthBill : currentBill;
-
-    // Calculate estimate that's always below target
-    if (baseline > 0 && targetBill > 0) {
-      const targetRatio = targetBill / baseline;
-
-      let estimatedBill: number;
-
-      if (targetRatio < 0.7) {
-        // Target is much lower: aggressive reduction, but ensure it's below target
-        const reductionFactor = 0.7 + (targetRatio - 0.7) * 0.5;
-        estimatedBill = baseline * reductionFactor;
-      } else if (targetRatio > 1.1) {
-        // Target is higher: conservative increase, capped well below target
-        estimatedBill = Math.min(baseline * 1.05, targetBill * 0.95);
+      if (res.ok) {
+        toast({
+          title: "Success",
+          description: "Plan saved successfully!",
+        });
+        setHasGeneratedPlan(true);
       } else {
-        // Close to baseline: scale proportionally but stay below target
-        estimatedBill = baseline * targetRatio * 0.97;
+        toast({
+          title: "Error",
+          description: "Failed to save plan",
+          variant: "destructive",
+        });
       }
-
-      // Always ensure it's below target (use 95-98% of target as safe margin)
-      return Math.min(estimatedBill, targetBill * 0.98);
+    } catch (err) {
+      console.error("Error saving plan:", err);
+      toast({
+        title: "Error",
+        description: "An error occurred while saving",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
     }
-
-    // Fallback: if no baseline, use 95% of target as conservative estimate
-    if (targetBill > 0) {
-      return targetBill * 0.95;
-    }
-
-    // Last resort fallback
-    return expectedMonthlyCost > 0
-      ? Math.min(expectedMonthlyCost, targetBill * 0.98)
-      : currentBill;
   };
 
-  const displayedBill = calculateEstimatedBill();
-  const progressPercent = Math.min((displayedBill / targetBill) * 100, 100);
-  const isUnderBudget = displayedBill <= targetBill;
+  const potentialSavings = Math.max(0, lastMonthBill - targetBill);
+
+
 
   // Get planned hours for an appliance (from plan or current)
   // Uses weekday/weekend specific hours if available, otherwise falls back to average
@@ -457,7 +477,6 @@ export default function PlanPage() {
   return (
     <AppShell>
       <div className="container max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Summary Cards */}
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Last Month's Bill */}
@@ -663,6 +682,18 @@ export default function PlanPage() {
                       Daily usage hours optimized for maximum savings
                     </p>
                   </div>
+                  <Button 
+                    onClick={handleSavePlan} 
+                    disabled={isSaving}
+                    className="gap-2"
+                  >
+                    {isSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Save Plan
+                  </Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -713,7 +744,7 @@ export default function PlanPage() {
                       return (
                         <Card
                           key={appliance.id}
-                          className="bg-muted/30"
+                          className={`bg-muted/30 ${hasChanges ? "border-2 border-green-500 shadow-sm" : ""}`}
                         >
                           <CardContent className="py-4">
                             <div className="flex items-center gap-3 mb-4">
@@ -723,6 +754,11 @@ export default function PlanPage() {
                               <span className="font-medium">
                                 {appliance.name}
                               </span>
+                              {hasChanges && (
+                                <Badge variant="outline" className="ml-auto border-green-500 text-green-600 bg-green-50">
+                                  Modified
+                                </Badge>
+                              )}
                             </div>
                             {activeTab === "weekend" ? (
                               // Weekend: Show only total hours (all off-peak)
@@ -924,7 +960,17 @@ export default function PlanPage() {
                                   Current
                                 </div>
                                 <div className="font-bold">
-                                  RM {displayedBill.toFixed(2)}
+                                  RM {(() => {
+                                    // Find the most recent previous assistant message with a plan
+                                    for (let j = i - 1; j >= 0; j--) {
+                                      const prevMsg = messages[j];
+                                      if (prevMsg.role === 'assistant' && prevMsg.plan?.projected_bill) {
+                                        return prevMsg.plan.projected_bill.toFixed(2);
+                                      }
+                                    }
+                                    // If no previous assistant message with plan, use initialEstimatedCost (captured before first chat)
+                                    return (initialEstimatedCost || displayedBill).toFixed(2);
+                                  })()}
                                 </div>
                               </div>
                               <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
@@ -932,28 +978,43 @@ export default function PlanPage() {
                                   Latest
                                 </div>
                                 <div className="font-bold text-green-600">
-                                  RM {latestBill.toFixed(2)}
+                                  RM {(msg.plan?.projected_bill || 0).toFixed(2)}
                                 </div>
                               </div>
-                              {displayedBill - latestBill >= 0 ? (
-                                <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
-                                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                    <TrendingDown className="h-3 w-3" /> You Save
+                              {(() => {
+                                // Calculate current bill (from previous assistant message or initialEstimatedCost)
+                                let currentValue = initialEstimatedCost || displayedBill;
+                                // Find the most recent previous assistant message with a plan
+                                for (let j = i - 1; j >= 0; j--) {
+                                  const prevMsg = messages[j];
+                                  if (prevMsg.role === 'assistant' && prevMsg.plan?.projected_bill) {
+                                    currentValue = prevMsg.plan.projected_bill;
+                                    break;
+                                  }
+                                }
+                                const latestValue = msg.plan?.projected_bill || 0;
+                                const difference = currentValue - latestValue;
+                                
+                                return difference >= 0 ? (
+                                  <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
+                                    <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                                      <TrendingDown className="h-3 w-3" /> You Save
+                                    </div>
+                                    <div className="font-bold text-green-600">
+                                      RM {difference.toFixed(2)}
+                                    </div>
                                   </div>
-                                  <div className="font-bold text-green-600">
-                                    RM {(displayedBill - latestBill).toFixed(2)}
+                                ) : (
+                                  <div className="bg-red-500/10 rounded-lg p-3 text-center border border-red-500/30">
+                                    <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                                      <TrendingDown className="h-3 w-3 rotate-180" /> Bill Increase
+                                    </div>
+                                    <div className="font-bold text-red-600">
+                                      RM {Math.abs(difference).toFixed(2)}
+                                    </div>
                                   </div>
-                                </div>
-                              ) : (
-                                <div className="bg-red-500/10 rounded-lg p-3 text-center border border-red-500/30">
-                                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                    <TrendingDown className="h-3 w-3 rotate-180" /> Bill Increase
-                                  </div>
-                                  <div className="font-bold text-red-600">
-                                    RM {Math.abs(displayedBill - latestBill).toFixed(2)}
-                                  </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </div>
 
                             {/* Plan details */}
