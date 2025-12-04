@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
-import { Checkbox } from "@/components/ui/checkbox"
 import { LoadingOverlay } from "@/components/loading-overlay"
 import { AlertDialog } from "@/components/alert-dialog"
 import {
@@ -25,20 +24,16 @@ import {
   Fan,
   Zap,
   Upload,
-  Clock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { addAppliance } from "../appliances/actions"
 import { completeSetup } from "../profile/actions"
-import { calculateUsageBreakdown } from "@/utils/usage-calculations"
+import { disaggregateEnergy } from "@/lib/ml-api"
 
 type ApplianceData = {
   id: string
   count: number
   watt: number
-  alwaysOn: boolean
-  startTime: string
-  endTime: string
 }
 
 const applianceTypes = [
@@ -51,6 +46,18 @@ const applianceTypes = [
   { id: "microwave", name: "Microwave", icon: Microwave, defaultWatt: 1000 },
   { id: "fan", name: "Ceiling Fan", icon: Fan, defaultWatt: 75 },
 ]
+
+// Map frontend appliance names to ML service names
+const ML_SERVICE_NAME_MAP: Record<string, string> = {
+  "Refrigerator": "Fridge",
+  "Air Conditioner": "Air Conditioner",
+  "Washing Machine": "Washing Machine",
+  "Television": "Television",
+  "Computer/PC": "Computer/PC",
+  "LED Lights": "LED Lights", // May not be in ML service, but will use fallback
+  "Microwave": "Microwave",
+  "Ceiling Fan": "Ceiling Fan",
+}
 
 export default function SetupPage() {
   const router = useRouter()
@@ -75,37 +82,20 @@ export default function SetupPage() {
             id,
             count: 1,
             watt: defaultWatt,
-            alwaysOn: false,
-            startTime: "18:00",
-            endTime: "22:00",
           },
         }
       }
     })
   }
 
-  const updateApplianceData = (id: string, field: string, value: number | boolean | string) => {
+  const updateApplianceData = (id: string, field: string, value: number) => {
     setAppliances((prev) => {
-      const updatedApp = {
-        ...prev[id],
-        [field]: value,
-      }
-
-      // Handle Always On logic
-      if (field === "alwaysOn") {
-        if (value === true) {
-          updatedApp.startTime = "00:00"
-          updatedApp.endTime = "23:59" // Effectively 24h
-        } else {
-          // Reset to default evening hours if unchecked
-          updatedApp.startTime = "18:00"
-          updatedApp.endTime = "22:00"
-        }
-      }
-
       return {
         ...prev,
-        [id]: updatedApp,
+        [id]: {
+          ...prev[id],
+          [field]: value,
+        },
       }
     })
   }
@@ -153,31 +143,86 @@ export default function SetupPage() {
 
     setIsSubmitting(true)
     try {
-      // Save appliances to Supabase
+      const totalKwh = parseFloat(billKwh)
+      
+      // Prepare appliances for ML service
+      const applianceList = Object.values(appliances).map((app) => {
+        const type = applianceTypes.find(t => t.id === app.id)
+        const frontendName = type?.name || app.id
+        // Map to ML service name (e.g., "Refrigerator" -> "Fridge")
+        const mlServiceName = ML_SERVICE_NAME_MAP[frontendName] || frontendName
+        return {
+          type: mlServiceName,
+          quantity: app.count,
+          rated_watts: app.watt,
+        }
+      })
+
+      // Call ML service to calculate usage hours
+      let disaggregateResult
+      try {
+        disaggregateResult = await disaggregateEnergy(totalKwh, applianceList)
+      } catch (error) {
+        console.error("Error calling ML service:", error)
+        // Fallback: use default usage hours if ML service fails
+        disaggregateResult = {
+          breakdown: Object.values(appliances).map((app) => {
+            const type = applianceTypes.find(t => t.id === app.id)
+            return {
+              type: type?.name || app.id,
+              usage_hours_per_day: 6, // Default fallback
+            }
+          }),
+        }
+      }
+
+      // Create a map of appliance type to usage hours
+      // Map ML service names back to frontend names
+      const usageHoursMap = new Map<string, number>()
+      const reverseNameMap = Object.fromEntries(
+        Object.entries(ML_SERVICE_NAME_MAP).map(([frontend, ml]) => [ml, frontend])
+      )
+      
+      disaggregateResult.breakdown.forEach((item: any) => {
+        // Convert ML service name back to frontend name
+        const frontendName = reverseNameMap[item.type] || item.type
+        usageHoursMap.set(frontendName, item.usage_hours_per_day)
+      })
+
+      // Calculate peak/off-peak distribution
+      // Peak hours: 14:00-22:00 (8 hours), Off-peak: rest (16 hours)
+      // Assume usage is distributed proportionally, but slightly more during peak hours
+      const PEAK_HOURS = 8
+      const OFF_PEAK_HOURS = 16
+      const TOTAL_HOURS = 24
+      // Use 60% peak, 40% off-peak distribution for typical usage
+      const PEAK_RATIO = 0.6
+
+      // Save appliances to Supabase with calculated usage hours
       const promises = Object.values(appliances).map(async (app) => {
         const formData = new FormData()
         const type = applianceTypes.find(t => t.id === app.id)
-        formData.append("name", type?.name || app.id)
+        const applianceName = type?.name || app.id
+        const dailyUsageHours = usageHoursMap.get(applianceName) || 6
+        
+        // Calculate peak and off-peak hours
+        // If usage is 24 hours, distribute evenly
+        // Otherwise, distribute based on peak ratio
+        let peakUsageHours, offPeakUsageHours
+        if (dailyUsageHours >= 24) {
+          peakUsageHours = PEAK_HOURS
+          offPeakUsageHours = OFF_PEAK_HOURS
+        } else {
+          peakUsageHours = Math.min(dailyUsageHours * PEAK_RATIO, PEAK_HOURS)
+          offPeakUsageHours = Math.max(0, dailyUsageHours - peakUsageHours)
+        }
+
+        formData.append("name", applianceName)
         formData.append("quantity", app.count.toString())
         formData.append("watt", app.watt.toString())
-        formData.append("usage_start_time", app.startTime)
-        formData.append("usage_end_time", app.endTime)
-        
-        // Calculate usage
-        let breakdown;
-        if (app.alwaysOn) {
-           breakdown = {
-             dailyUsage: 24,
-             peakUsage: 14, // 8am - 10pm is 14 hours
-             offPeakUsage: 10 // Rest is 10 hours
-           }
-        } else {
-           breakdown = calculateUsageBreakdown(app.startTime, app.endTime)
-        }
-        
-        formData.append("daily_usage_hours", breakdown.dailyUsage.toString())
-        formData.append("peak_usage_hours", breakdown.peakUsage.toString())
-        formData.append("off_peak_usage_hours", breakdown.offPeakUsage.toString())
+        formData.append("daily_usage_hours", dailyUsageHours.toString())
+        formData.append("peak_usage_hours", peakUsageHours.toString())
+        formData.append("off_peak_usage_hours", offPeakUsageHours.toString())
         
         return addAppliance(formData)
       })
@@ -187,7 +232,7 @@ export default function SetupPage() {
       // Save profile details to database
       const result = await completeSetup(
         parseFloat(billAmount),
-        parseFloat(billKwh),
+        totalKwh,
         budgetTarget[0]
       )
 
@@ -198,6 +243,11 @@ export default function SetupPage() {
       router.push("/dashboard")
     } catch (error) {
       console.error("Error saving setup:", error)
+      setAlertConfig({
+        isOpen: true,
+        title: "Setup Error",
+        message: "Failed to complete setup. Please try again."
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -305,16 +355,6 @@ export default function SetupPage() {
                   const isSelected = !!appliances[appliance.id]
                   const Icon = appliance.icon
                   const data = appliances[appliance.id]
-                  
-                  // Calculate breakdown for display
-                  let breakdown;
-                  if (data && data.alwaysOn) {
-                    breakdown = { dailyUsage: 24, peakUsage: 14, offPeakUsage: 10 }
-                  } else {
-                    breakdown = isSelected 
-                      ? calculateUsageBreakdown(data.startTime, data.endTime)
-                      : { dailyUsage: 0, peakUsage: 0, offPeakUsage: 0 }
-                  }
 
                   return (
                     <div key={appliance.id} className="space-y-3">
@@ -394,71 +434,9 @@ export default function SetupPage() {
                               )}
                             </div>
                           </div>
-                          
-                          <div className="space-y-3 border rounded-lg p-3 bg-muted/30">
-                            <div className="flex items-center gap-2 text-sm font-medium">
-                              <Clock className="h-4 w-4 text-primary" />
-                              Usage Schedule
-                            </div>
-                            <div className={cn("grid grid-cols-2 gap-4", data.alwaysOn && "opacity-50 pointer-events-none")}>
-                              <div className="space-y-2">
-                                <Label htmlFor={`${appliance.id}-start`} className="text-xs text-muted-foreground">
-                                  Start Time
-                                </Label>
-                                <Input
-                                  id={`${appliance.id}-start`}
-                                  type="time"
-                                  value={data.startTime}
-                                  onChange={(e) => updateApplianceData(appliance.id, "startTime", e.target.value)}
-                                  className="h-8"
-                                  disabled={data.alwaysOn}
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor={`${appliance.id}-end`} className="text-xs text-muted-foreground">
-                                  End Time
-                                </Label>
-                                <Input
-                                  id={`${appliance.id}-end`}
-                                  type="time"
-                                  value={data.endTime}
-                                  onChange={(e) => updateApplianceData(appliance.id, "endTime", e.target.value)}
-                                  className="h-8"
-                                  disabled={data.alwaysOn}
-                                />
-                              </div>
-                            </div>
-                            
-                            <div className="flex items-center justify-between text-xs pt-2 border-t">
-                              <span className="text-muted-foreground">Est. Daily Usage:</span>
-                              <span className="font-medium">{breakdown.dailyUsage} hours</span>
-                            </div>
-                            <div className="flex gap-4 text-xs">
-                              <div className="flex items-center gap-1">
-                                <div className="w-2 h-2 rounded-full bg-chart-3" />
-                                <span className="text-muted-foreground">Peak: {breakdown.peakUsage}h</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <div className="w-2 h-2 rounded-full bg-chart-1" />
-                                <span className="text-muted-foreground">Off-Peak: {breakdown.offPeakUsage}h</span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-end pt-2">
-                            <div className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`${appliance.id}-always-on`}
-                                checked={data.alwaysOn}
-                                onCheckedChange={(checked) =>
-                                  updateApplianceData(appliance.id, "alwaysOn", checked as boolean)
-                                }
-                              />
-                              <Label htmlFor={`${appliance.id}-always-on`} className="text-sm cursor-pointer">
-                                Always On (24 Hours)
-                              </Label>
-                            </div>
-                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Usage hours will be calculated automatically based on your energy consumption patterns.
+                          </p>
                         </div>
                       )}
                     </div>
