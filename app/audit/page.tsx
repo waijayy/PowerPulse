@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Lightbulb, TrendingDown, Clock, Info } from "lucide-react"
 import { getApplicableRate, senToRM } from "@/constants/electricity-rates"
 
@@ -25,32 +26,44 @@ type ApplianceUsage = {
 }
 
 import { getAppliances } from "../appliances/actions"
+import { getProfile } from "../profile/actions"
+import { SolarSimulator } from "@/components/solar-simulator"
 
 export default function AuditPage() {
   const [appliances, setAppliances] = useState<ApplianceData[]>([])
   const [selectedAppliances, setSelectedAppliances] = useState<Set<string>>(new Set())
   const [usageData, setUsageData] = useState<Record<string, ApplianceUsage>>({})
+  const [profileData, setProfileData] = useState<{ bill: number, kwh: number } | null>(null)
 
   useEffect(() => {
     getAppliances().then((data) => {
-        // Map Supabase data to ApplianceData
-        // Supabase returns { id, name, quantity, watt }
-        // AuditPage expects { id, count, kwh, alwaysOn }
-        // We need to map 'watt' to 'kwh' (watt / 1000)
-        const mapped = data.map((app: any) => ({
-            id: app.id.toString(), // Use DB ID as string
-            name: app.name, // Store name to display
-            count: app.quantity,
-            kwh: (app.watt || 0) / 1000,
-            alwaysOn: false // Default for now
-        }))
-        setAppliances(mapped)
+      // Map Supabase data to ApplianceData
+      // Supabase returns { id, name, quantity, watt }
+      // AuditPage expects { id, count, kwh, alwaysOn }
+      // We need to map 'watt' to 'kwh' (watt / 1000)
+      const mapped = data.map((app: any) => ({
+        id: app.id.toString(), // Use DB ID as string
+        name: app.name, // Store name to display
+        count: app.quantity,
+        kwh: (app.watt || 0) / 1000,
+        alwaysOn: false // Default for now
+      }))
+      setAppliances(mapped)
+    })
+
+    getProfile().then((data) => {
+      if (data) {
+        setProfileData({
+          bill: data.total_bill_amount || 0,
+          kwh: data.total_kwh_usage || 0
+        })
+      }
     })
   }, [])
 
   const getApplianceName = (id: string) => {
-      const app = appliances.find(a => a.id === id)
-      return app?.name || "Unknown Appliance"
+    const app = appliances.find(a => a.id === id)
+    return app?.name || "Unknown Appliance"
   }
 
   const toggleAppliance = (id: string) => {
@@ -97,7 +110,7 @@ export default function AuditPage() {
 
     // Get applicable rate based on total monthly usage
     const rate = getApplicableRate(totalMonthlyKwh)
-    
+
     // Calculate costs in RM
     const peakCost = monthlyPeakKwh * senToRM(rate.peak)
     const offPeakCost = monthlyOffPeakKwh * senToRM(rate.offPeak)
@@ -167,241 +180,260 @@ export default function AuditPage() {
       </AppShell>
     )
   }
-
   return (
     <AppShell>
       <div className="container mx-auto px-4 py-6 md:py-8">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Appliance Simulator</h1>
-          <p className="text-muted-foreground">
-            Select appliances and enter usage hours to calculate costs and discover savings
-          </p>
-        </div>
+        <Tabs defaultValue="appliances" className="w-full">
+          <div className="flex items-center justify-between mb-6">
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold tracking-tight">Energy Simulator</h1>
+              <p className="text-muted-foreground">
+                Simulate appliance usage or calculate solar potential
+              </p>
+            </div>
+            <TabsList>
+              <TabsTrigger value="appliances">Appliance Simulator</TabsTrigger>
+              <TabsTrigger value="solar">Solar Potential</TabsTrigger>
+            </TabsList>
+          </div>
 
-        <div className="flex gap-6 h-[calc(100vh-16rem)]">
-          {/* Left Panel: Appliance Selection - 35% width */}
-          <Card className="flex flex-col w-[35%]">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle>Select Appliances</CardTitle>
-              <CardDescription>Choose appliances and enter daily usage hours</CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto space-y-4 pr-4">
-              {appliances.map((appliance) => {
-                const isSelected = selectedAppliances.has(appliance.id)
-                const usage = usageData[appliance.id]
+          <TabsContent value="appliances" className="space-y-4">
+            <div className="flex gap-6 h-[calc(100vh-16rem)]">
+              {/* Left Panel: Appliance Selection - 35% width */}
+              <Card className="flex flex-col w-[35%]">
+                <CardHeader className="flex-shrink-0">
+                  <CardTitle>Select Appliances</CardTitle>
+                  <CardDescription>Choose appliances and enter daily usage hours</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-1 overflow-y-auto space-y-4 pr-4">
+                  {appliances.map((appliance) => {
+                    const isSelected = selectedAppliances.has(appliance.id)
+                    const usage = usageData[appliance.id]
 
-                return (
-                  <div
-                    key={appliance.id}
-                    className={`p-4 rounded-lg border-2 transition-all ${
-                      isSelected
-                        ? "border-primary bg-primary/5 shadow-sm"
-                        : "border-border hover:border-muted-foreground/30"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3 mb-3">
-                      <Checkbox
-                        id={appliance.id}
-                        checked={isSelected}
-                        onCheckedChange={() => toggleAppliance(appliance.id)}
-                        className="mt-1"
-                      />
-                      <label htmlFor={appliance.id} className="flex-1 cursor-pointer">
-                        <p className="font-semibold">{getApplianceName(appliance.id)}</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {appliance.count} unit{appliance.count > 1 ? "s" : ""} • {appliance.kwh} kWh
-                          {appliance.alwaysOn && " • Always On"}
-                        </p>
-                      </label>
-                    </div>
-
-                    {isSelected && (
-                      <div className="space-y-3 mt-3 pt-3 border-t">
-                        <div className="space-y-1.5">
-                          <Label htmlFor={`${appliance.id}-daily`} className="text-xs font-medium">
-                            Daily Hours (total)
-                          </Label>
-                          <Input
-                            id={`${appliance.id}-daily`}
-                            type="number"
-                            value={usage?.dailyHours || ""}
-                            onChange={(e) =>
-                              updateUsage(appliance.id, "dailyHours", Number.parseFloat(e.target.value) || 0)
-                            }
-                            placeholder="0"
-                            min="0"
-                            max="24"
-                            step="0.5"
-                            className="h-9"
+                    return (
+                      <div
+                        key={appliance.id}
+                        className={`p-4 rounded-lg border-2 transition-all ${isSelected
+                          ? "border-primary bg-primary/5 shadow-sm"
+                          : "border-border hover:border-muted-foreground/30"
+                          }`}
+                      >
+                        <div className="flex items-start gap-3 mb-3">
+                          <Checkbox
+                            id={appliance.id}
+                            checked={isSelected}
+                            onCheckedChange={() => toggleAppliance(appliance.id)}
+                            className="mt-1"
                           />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label htmlFor={`${appliance.id}-offpeak`} className="text-xs font-medium">
-                            Off-Peak Hours
-                          </Label>
-                          <Input
-                            id={`${appliance.id}-offpeak`}
-                            type="number"
-                            value={usage?.offPeakHours || ""}
-                            onChange={(e) =>
-                              updateUsage(appliance.id, "offPeakHours", Number.parseFloat(e.target.value) || 0)
-                            }
-                            placeholder="0"
-                            min="0"
-                            max="24"
-                            step="0.5"
-                            className="h-9"
-                          />
-                          <div className="flex items-start gap-1.5 mt-1 text-xs text-muted-foreground">
-                            <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                            <p className="leading-tight">
-                              ToU off-peak: 10am-2pm weekdays, all day Sat/Sun & public holidays
+                          <label htmlFor={appliance.id} className="flex-1 cursor-pointer">
+                            <p className="font-semibold">{getApplianceName(appliance.id)}</p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {appliance.count} unit{appliance.count > 1 ? "s" : ""} • {appliance.kwh} kWh
+                              {appliance.alwaysOn && " • Always On"}
                             </p>
-                          </div>
+                          </label>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </CardContent>
-          </Card>
 
-          {/* Right Panel: Cost Analysis - 65% width */}
-          <Card className="flex flex-col w-[65%]">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle>Cost Analysis</CardTitle>
-              <CardDescription>
-                {selectedAppliances.size > 0
-                  ? `Analyzing ${selectedAppliances.size} appliance${selectedAppliances.size > 1 ? "s" : ""}`
-                  : "Select appliances to see analysis"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto space-y-4 pr-4">
-              {selectedAppliances.size > 0 ? (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {Array.from(selectedAppliances).map((id) => {
-                      const subtotal = calculateApplianceSubtotal(id)
-                      return (
-                        <Card key={id} className="bg-muted/30">
-                          <CardContent className="p-4">
-                            <p className="text-xs text-muted-foreground mb-1">Subtotal</p>
-                            <p className="font-semibold text-sm mb-2">{getApplianceName(id)}</p>
-                            {subtotal ? (
-                              <>
-                                <p className="text-lg font-bold text-primary mb-3">RM {subtotal.totalCost}</p>
-                                <div className="space-y-1 text-xs text-muted-foreground border-t pt-2">
-                                  <div className="flex justify-between">
-                                    <span>Peak: {subtotal.monthlyPeakKwh} kWh × RM{subtotal.peakRate}</span>
-                                    <span className="font-medium">RM {subtotal.peakCost}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span>Off-Peak: {subtotal.monthlyOffPeakKwh} kWh × RM{subtotal.offPeakRate}</span>
-                                    <span className="font-medium">RM {subtotal.offPeakCost}</span>
-                                  </div>
-                                  <div className="flex justify-between text-xs pt-1 border-t">
-                                    <span>({subtotal.peakHours}h peak + {subtotal.offPeakHours}h off-peak daily)</span>
-                                  </div>
+                        {isSelected && (
+                          <div className="space-y-3 mt-3 pt-3 border-t">
+                            <div className="space-y-1.5">
+                              <Label htmlFor={`${appliance.id}-daily`} className="text-xs font-medium">
+                                Daily Hours (total)
+                              </Label>
+                              <Input
+                                id={`${appliance.id}-daily`}
+                                type="number"
+                                value={usage?.dailyHours || ""}
+                                onChange={(e) =>
+                                  updateUsage(appliance.id, "dailyHours", Number.parseFloat(e.target.value) || 0)
+                                }
+                                placeholder="0"
+                                min="0"
+                                max="24"
+                                step="0.5"
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor={`${appliance.id}-offpeak`} className="text-xs font-medium">
+                                Off-Peak Hours
+                              </Label>
+                              <Input
+                                id={`${appliance.id}-offpeak`}
+                                type="number"
+                                value={usage?.offPeakHours || ""}
+                                onChange={(e) =>
+                                  updateUsage(appliance.id, "offPeakHours", Number.parseFloat(e.target.value) || 0)
+                                }
+                                placeholder="0"
+                                min="0"
+                                max="24"
+                                step="0.5"
+                                className="h-9"
+                              />
+                              <div className="flex items-start gap-1.5 mt-1 text-xs text-muted-foreground">
+                                <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                <p className="leading-tight">
+                                  ToU off-peak: 10am-2pm weekdays, all day Sat/Sun & public holidays
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </CardContent>
+              </Card>
+
+              {/* Right Panel: Cost Analysis - 65% width */}
+              <Card className="flex flex-col w-[65%]">
+                <CardHeader className="flex-shrink-0">
+                  <CardTitle>Cost Analysis</CardTitle>
+                  <CardDescription>
+                    {selectedAppliances.size > 0
+                      ? `Analyzing ${selectedAppliances.size} appliance${selectedAppliances.size > 1 ? "s" : ""}`
+                      : "Select appliances to see analysis"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex-1 overflow-y-auto space-y-4 pr-4">
+                  {selectedAppliances.size > 0 ? (
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {Array.from(selectedAppliances).map((id) => {
+                          const subtotal = calculateApplianceSubtotal(id)
+                          return (
+                            <Card key={id} className="bg-muted/30">
+                              <CardContent className="p-4">
+                                <p className="text-xs text-muted-foreground mb-1">Subtotal</p>
+                                <p className="font-semibold text-sm mb-2">{getApplianceName(id)}</p>
+                                {subtotal ? (
+                                  <>
+                                    <p className="text-lg font-bold text-primary mb-3">RM {subtotal.totalCost}</p>
+                                    <div className="space-y-1 text-xs text-muted-foreground border-t pt-2">
+                                      <div className="flex justify-between">
+                                        <span>Peak: {subtotal.monthlyPeakKwh} kWh × RM{subtotal.peakRate}</span>
+                                        <span className="font-medium">RM {subtotal.peakCost}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span>Off-Peak: {subtotal.monthlyOffPeakKwh} kWh × RM{subtotal.offPeakRate}</span>
+                                        <span className="font-medium">RM {subtotal.offPeakCost}</span>
+                                      </div>
+                                      <div className="flex justify-between text-xs pt-1 border-t">
+                                        <span>({subtotal.peakHours}h peak + {subtotal.offPeakHours}h off-peak daily)</span>
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <p className="text-sm text-muted-foreground">Enter hours</p>
+                                )}
+                              </CardContent>
+                            </Card>
+                          )
+                        })}
+                      </div>
+
+                      <Card className="bg-primary/5 border-primary">
+                        <CardContent className="p-6 space-y-4">
+                          <h3 className="text-lg font-semibold mb-3">Monthly Cost Summary</h3>
+
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center pb-2 border-b border-primary/20">
+                              <span className="text-sm text-muted-foreground">Total Energy</span>
+                              <span className="font-semibold">{totals.totalKwh} kWh</span>
+                            </div>
+                            <div className="flex justify-between items-center pb-2 border-b border-primary/20">
+                              <span className="text-sm text-muted-foreground">Peak Hours Cost</span>
+                              <span className="font-semibold">RM {totals.totalPeakCost}</span>
+                            </div>
+                            <div className="flex justify-between items-center pb-2 border-b border-primary/20">
+                              <span className="text-sm text-muted-foreground">Off-Peak Hours Cost</span>
+                              <span className="font-semibold">RM {totals.totalOffPeakCost}</span>
+                            </div>
+                            <div className="flex justify-between items-center pt-2">
+                              <span className="text-base font-medium">Total Monthly Cost</span>
+                              <span className="text-2xl font-bold text-primary">RM {totals.totalMonthly}</span>
+                            </div>
+                          </div>
+
+                          <div className="pt-3 border-t border-primary/20">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium text-chart-1">Savings from Off-Peak Usage</span>
+                              <span className="font-bold text-chart-1">RM {totals.totalPotentialSavings}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {hasSignificantSavings && (
+                        <Alert className="border-primary bg-primary/5">
+                          <Lightbulb className="h-5 w-5 text-primary" />
+                          <AlertTitle className="text-lg font-semibold mb-3">Smart Recommendations</AlertTitle>
+                          <AlertDescription className="space-y-4">
+                            <div className="flex items-start gap-3">
+                              <Clock className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
+                              <div>
+                                <p className="text-sm font-medium mb-2">Maximize Off-Peak Hours (10 PM - 8 AM)</p>
+                                <p className="text-sm text-muted-foreground mb-3">
+                                  You're currently saving RM {totals.totalPotentialSavings}/month by using off-peak hours.
+                                  Shift more usage to off-peak times to save even more!
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="bg-background rounded-lg p-4 space-y-3">
+                              <p className="text-sm font-semibold">TNB Tariff Rates:</p>
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-muted-foreground">Peak Rate</span>
+                                  <span className="font-semibold">RM 0.2852/kWh (≤1500 kWh) | RM 0.3852/kWh (&gt;1500 kWh)</span>
                                 </div>
-                              </>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">Enter hours</p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      )
-                    })}
-                  </div>
-
-                  <Card className="bg-primary/5 border-primary">
-                    <CardContent className="p-6 space-y-4">
-                      <h3 className="text-lg font-semibold mb-3">Monthly Cost Summary</h3>
-
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center pb-2 border-b border-primary/20">
-                          <span className="text-sm text-muted-foreground">Total Energy</span>
-                          <span className="font-semibold">{totals.totalKwh} kWh</span>
-                        </div>
-                        <div className="flex justify-between items-center pb-2 border-b border-primary/20">
-                          <span className="text-sm text-muted-foreground">Peak Hours Cost</span>
-                          <span className="font-semibold">RM {totals.totalPeakCost}</span>
-                        </div>
-                        <div className="flex justify-between items-center pb-2 border-b border-primary/20">
-                          <span className="text-sm text-muted-foreground">Off-Peak Hours Cost</span>
-                          <span className="font-semibold">RM {totals.totalOffPeakCost}</span>
-                        </div>
-                        <div className="flex justify-between items-center pt-2">
-                          <span className="text-base font-medium">Total Monthly Cost</span>
-                          <span className="text-2xl font-bold text-primary">RM {totals.totalMonthly}</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-3 border-t border-primary/20">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-chart-1">Savings from Off-Peak Usage</span>
-                          <span className="font-bold text-chart-1">RM {totals.totalPotentialSavings}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {hasSignificantSavings && (
-                    <Alert className="border-primary bg-primary/5">
-                      <Lightbulb className="h-5 w-5 text-primary" />
-                      <AlertTitle className="text-lg font-semibold mb-3">Smart Recommendations</AlertTitle>
-                      <AlertDescription className="space-y-4">
-                        <div className="flex items-start gap-3">
-                          <Clock className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium mb-2">Maximize Off-Peak Hours (10 PM - 8 AM)</p>
-                            <p className="text-sm text-muted-foreground mb-3">
-                              You're currently saving RM {totals.totalPotentialSavings}/month by using off-peak hours.
-                              Shift more usage to off-peak times to save even more!
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="bg-background rounded-lg p-4 space-y-3">
-                          <p className="text-sm font-semibold">TNB Tariff Rates:</p>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Peak Rate</span>
-                              <span className="font-semibold">RM 0.2852/kWh (≤1500 kWh) | RM 0.3852/kWh (&gt;1500 kWh)</span>
+                                <div className="flex items-center justify-between text-sm text-chart-1">
+                                  <span className="flex items-center gap-1">
+                                    <TrendingDown className="h-4 w-4" />
+                                    Off-Peak Rate
+                                  </span>
+                                  <span className="font-semibold">RM 0.2443/kWh (≤1500 kWh) | RM 0.3443/kWh (&gt;1500 kWh)</span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-sm text-chart-1">
-                              <span className="flex items-center gap-1">
-                                <TrendingDown className="h-4 w-4" />
-                                Off-Peak Rate
-                              </span>
-                              <span className="font-semibold">RM 0.2443/kWh (≤1500 kWh) | RM 0.3443/kWh (&gt;1500 kWh)</span>
-                            </div>
-                          </div>
-                        </div>
 
-                        <div className="text-sm text-muted-foreground">
-                          <p className="font-medium mb-1">Suggestions:</p>
-                          <ul className="list-disc list-inside space-y-1 text-xs">
-                            <li>Run washing machines and dishwashers after 10 PM</li>
-                            <li>Charge electric vehicles overnight</li>
-                            <li>Use programmable thermostats for off-peak cooling</li>
-                            <li>Schedule water heaters to operate during off-peak hours</li>
-                          </ul>
-                        </div>
-                      </AlertDescription>
-                    </Alert>
+                            <div className="text-sm text-muted-foreground">
+                              <p className="font-medium mb-1">Suggestions:</p>
+                              <ul className="list-disc list-inside space-y-1 text-xs">
+                                <li>Run washing machines and dishwashers after 10 PM</li>
+                                <li>Charge electric vehicles overnight</li>
+                                <li>Use programmable thermostats for off-peak cooling</li>
+                                <li>Schedule water heaters to operate during off-peak hours</li>
+                              </ul>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-center text-muted-foreground py-12">
+                        Select appliances from the left panel to see cost analysis and recommendations
+                      </p>
+                    </div>
                   )}
-                </>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-center text-muted-foreground py-12">
-                    Select appliances from the left panel to see cost analysis and recommendations
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="solar">
+            <div className="max-w-5xl mx-auto">
+              <SolarSimulator
+                currentMonthlyBill={Number.parseFloat(totals.totalMonthly) || 0}
+                currentMonthlyKWh={Number.parseFloat(totals.totalKwh) || 0}
+                profileBill={profileData?.bill}
+                profileKWh={profileData?.kwh}
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppShell>
   )

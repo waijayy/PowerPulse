@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Large data files
+*.csv
+House_4.csv
+
+# Python cache
+__pycache__/
+*.pyc
