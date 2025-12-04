@@ -5,6 +5,7 @@ from typing import List, Optional
 import logic_training
 import logic_detection
 import logic_stats
+import forecast_api
 
 app = FastAPI(title="PowerPulse ML Service")
 
@@ -80,3 +81,16 @@ def disaggregate_usage(request: DisaggregateRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Mount the forecasting API under /forecast so its routes are accessible
+app.mount("/forecast", forecast_api.app)
+
+# Explicitly load forecast models since startup events don't fire for mounted apps
+@app.on_event("startup")
+def load_forecast_models():
+    print("\n" + "="*50)
+    print("  Loading Forecast API Models")
+    print("="*50)
+    forecast_api.load_models_and_scalers()
+    forecast_api.load_dataset_cache()
+    print("="*50 + "\n")

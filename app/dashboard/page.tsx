@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
 import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
 import { createClient } from "@/utils/supabase/client"
-import { getUsageStats, type UsageStatsResult } from "@/lib/ml-api"
+import { getUsageStats, predictWeekFromRealData, type UsageStatsResult } from "@/lib/ml-api"
 
 const generateUsageData = () => {
   const now = new Date()
@@ -27,44 +27,6 @@ const generateUsageData = () => {
   return data
 }
 
-const generateWeeklyDataFromStats = (stats: UsageStatsResult | null) => {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-  if (!stats || !stats.appliances) {
-    return days.map((day) => ({
-      label: day,
-      usage: Math.random() * 6 + 16,
-      target: 20,
-    }))
-  }
-  
-  const totalActiveHours = stats.summary?.total_active_hours || 100
-  const avgDailyUsage = totalActiveHours / 7
-  
-  return days.map((day, index) => ({
-    label: day,
-    usage: avgDailyUsage * (0.8 + Math.random() * 0.4),
-    target: 20,
-  }))
-}
-
-const generateMonthlyDataFromStats = (stats: UsageStatsResult | null) => {
-  const data = []
-  const now = new Date()
-  
-  const baseUsage = stats?.summary?.total_active_hours 
-    ? stats.summary.total_active_hours / 30 
-    : 18
-  
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
-    data.push({
-      label: `${date.getMonth() + 1}/${date.getDate()}`,
-      usage: baseUsage * (0.7 + Math.random() * 0.6),
-      target: 20,
-    })
-  }
-  return data
-}
 
 type GridStatus = "healthy" | "warning" | "critical"
 
@@ -78,17 +40,17 @@ export default function DashboardPage() {
   const [gridStatus, setGridStatus] = useState<GridStatus>("healthy")
   const [currentUsage, setCurrentUsage] = useState(85)
   const [budgetTarget, setBudgetTarget] = useState(150)
-  const [viewMode, setViewMode] = useState<"week" | "month">("week")
-  const [trendData, setTrendData] = useState<Array<{ label: string; usage: number; target: number }>>([])
+  const [trendData, setTrendData] = useState<Array<{ label: string; predicted: number }>>([])
   const [mlStats, setMlStats] = useState<UsageStatsResult | null>(null)
   const [phantomHours, setPhantomHours] = useState(0)
   const [isClient, setIsClient] = useState(false)
+  const [isLoadingPredictions, setIsLoadingPredictions] = useState(true)
 
   useEffect(() => {
     setIsClient(true)
     setUsageData(generateUsageData())
     setGridStatus(getGridStatus())
-    
+
     const interval = setInterval(() => {
       setUsageData(generateUsageData())
       setGridStatus(getGridStatus())
@@ -118,24 +80,50 @@ export default function DashboardPage() {
         if (stats.summary) {
           setPhantomHours(stats.summary.total_phantom_hours || 0)
         }
-        setTrendData(generateWeeklyDataFromStats(stats))
       } catch (err) {
-        console.error("ML service not available, using fallback data")
-        setTrendData(generateWeeklyDataFromStats(null))
+        console.error("ML service not available")
       }
     }
+
+    async function loadPredictions() {
+      setIsLoadingPredictions(true)
+      try {
+        // Use REAL data from House_4 dataset
+        const prediction = await predictWeekFromRealData()
+
+        if (prediction.success && prediction.predictions) {
+          const predictionData = prediction.predictions.map(p => ({
+            label: p.day,
+            predicted: p.predicted_kwh
+          }))
+
+          setTrendData(predictionData)
+          console.log("Real data prediction loaded:", {
+            source: prediction.data_source,
+            inputStats: prediction.input_stats,
+            totalWeek: prediction.total_week_kwh
+          })
+        }
+      } catch (err) {
+        console.error("Forecast API not available:", err)
+        // Set fallback prediction data
+        const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        setTrendData(days.map(day => ({
+          label: day,
+          predicted: 16 + Math.random() * 8
+        })))
+      } finally {
+        setIsLoadingPredictions(false)
+      }
+    }
+
     loadMLStats()
+    loadPredictions()
 
     return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    if (viewMode === "week") {
-      setTrendData(generateWeeklyDataFromStats(mlStats))
-    } else {
-      setTrendData(generateMonthlyDataFromStats(mlStats))
-    }
-  }, [viewMode, mlStats])
+
 
   const budgetProgress = (currentUsage / budgetTarget) * 100
   const isNearLimit = budgetProgress > 75
@@ -195,7 +183,7 @@ export default function DashboardPage() {
               >
                 {currentGridConfig.badge}
               </Badge>
-              
+
               {gridStatus === "critical" && (
                 <div className="mt-3 pt-3 border-t border-chart-3/20">
                   <div className="flex items-start gap-2">
@@ -278,11 +266,10 @@ export default function DashboardPage() {
 
         <LiveUsageChart data={usageData} />
 
-        <UsageTrendChart 
-          data={trendData} 
-          viewMode={viewMode} 
-          onViewModeChange={setViewMode}
+        <UsageTrendChart
+          data={trendData}
           budgetTarget={budgetTarget}
+          isLoading={isLoadingPredictions}
         />
       </div>
     </AppShell>
