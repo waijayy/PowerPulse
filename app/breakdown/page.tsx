@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Zap, Calculator, TrendingUp, Loader2 } from "lucide-react"
+import { Zap, Calculator, TrendingUp, Loader2, Edit, Save, X } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
 import { disaggregateEnergy, type DisaggregateResult, type ApplianceItem } from "@/lib/ml-api"
 import { getAppliances } from "../appliances/actions"
+import { createClient } from "@/utils/supabase/client"
+import { updateProfileBill } from "../profile/actions"
 
 const COLORS = [
   "hsl(var(--chart-1))",
@@ -37,14 +39,20 @@ const APPLIANCE_TYPE_MAP: Record<string, string> = {
 
 export default function BreakdownPage() {
   const [totalKwh, setTotalKwh] = useState<string>("300")
+  const [originalKwh, setOriginalKwh] = useState<string>("300")
+  const [isEditing, setIsEditing] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [result, setResult] = useState<DisaggregateResult | null>(null)
   const [userAppliances, setUserAppliances] = useState<ApplianceItem[]>([])
   const [applianceDetails, setApplianceDetails] = useState<Array<{name: string, quantity: number, watt: number}>>([])
 
   useEffect(() => {
-    async function loadAppliances() {
+    async function loadData() {
       try {
+        const supabase = createClient()
+        
+        // Load appliances
         const appliances = await getAppliances()
         setApplianceDetails(appliances)
         const mapped = appliances.map((app: { name: string; quantity: number; watt: number }) => ({
@@ -53,12 +61,81 @@ export default function BreakdownPage() {
           rated_watts: app.watt || 0,
         }))
         setUserAppliances(mapped)
+
+        // Load profile data for total_kwh_usage
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('total_kwh_usage')
+            .eq('id', user.id)
+            .single()
+          
+          if (profile?.total_kwh_usage) {
+            const kwhValue = profile.total_kwh_usage.toString()
+            setTotalKwh(kwhValue)
+            setOriginalKwh(kwhValue)
+          }
+        }
       } catch (err) {
-        console.error("Failed to load appliances:", err)
+        console.error("Failed to load data:", err)
       }
     }
-    loadAppliances()
+    loadData()
   }, [])
+
+  const handleEdit = () => {
+    setIsEditing(true)
+  }
+
+  const handleCancel = () => {
+    setTotalKwh(originalKwh)
+    setIsEditing(false)
+  }
+
+  const handleSave = async () => {
+    const kwh = parseFloat(totalKwh)
+    if (isNaN(kwh) || kwh <= 0) {
+      alert("Please enter a valid kWh value")
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const supabase = createClient()
+      
+      // Get bill amount from profile (we'll keep it the same or calculate it)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('total_bill_amount')
+          .eq('id', user.id)
+          .single()
+        
+        const billAmount = profile?.total_bill_amount || 0
+        const result = await updateProfileBill(billAmount, kwh)
+        
+        if (result.error) {
+          alert(`Failed to save: ${result.error}`)
+          return
+        }
+        
+        setOriginalKwh(totalKwh)
+        setIsEditing(false)
+        
+        // Re-analyze with new value
+        if (userAppliances.length > 0) {
+          handleAnalyze()
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save:", err)
+      alert("Failed to save changes")
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   const handleAnalyze = async () => {
     if (userAppliances.length === 0) return
@@ -87,7 +164,7 @@ export default function BreakdownPage() {
     <AppShell>
       <div className="container max-w-6xl mx-auto px-4 py-6 md:py-8 space-y-6">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Energy Breakdown</h1>
+          <h1 className="text-3xl font-bold tracking-tight mb-2">Bill Breakdown</h1>
           <p className="text-muted-foreground">Analyze how your total electricity consumption is distributed across appliances</p>
         </div>
 
@@ -96,20 +173,61 @@ export default function BreakdownPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calculator className="h-5 w-5" />
-                Input
+                Energy Usage Calculation
               </CardTitle>
-              <CardDescription>Enter your monthly electricity usage</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="total-kwh">Total Consumption (kWh)</Label>
-                <Input
-                  id="total-kwh"
-                  type="number"
-                  value={totalKwh}
-                  onChange={(e) => setTotalKwh(e.target.value)}
-                  placeholder="e.g., 300"
-                />
+                <Label htmlFor="total-kwh">Total Consumption Last Month (kWh)</Label>
+                <div className="relative">
+                  <Input
+                    id="total-kwh"
+                    type="number"
+                    value={totalKwh}
+                    onChange={(e) => setTotalKwh(e.target.value)}
+                    placeholder="e.g., 300"
+                    disabled={!isEditing}
+                    className={!isEditing ? "bg-muted pr-10" : "pr-10"}
+                  />
+                  {!isEditing ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3"
+                      onClick={handleEdit}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <div className="absolute right-0 top-0 h-full flex items-center gap-1 pr-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={handleCancel}
+                        disabled={isSaving}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={handleSave}
+                        disabled={isSaving}
+                      >
+                        {isSaving ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Save className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Check your TNB bill for monthly kWh
                 </p>

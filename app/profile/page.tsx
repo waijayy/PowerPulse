@@ -67,10 +67,6 @@ type Appliance = {
   daily_usage_hours: number
   peak_usage_hours: number
   off_peak_usage_hours: number
-  // UI state fields
-  startTime?: string
-  endTime?: string
-  alwaysOn?: boolean
 }
 
 export default function ProfilePage() {
@@ -101,9 +97,6 @@ export default function ProfilePage() {
   const [selectedType, setSelectedType] = useState("")
   const [newQuantity, setNewQuantity] = useState(1)
   const [newWatt, setNewWatt] = useState(0)
-  const [newStartTime, setNewStartTime] = useState("18:00")
-  const [newEndTime, setNewEndTime] = useState("22:00")
-  const [newAlwaysOn, setNewAlwaysOn] = useState(false)
 
   const { toast } = useToast()
 
@@ -140,19 +133,6 @@ export default function ProfilePage() {
     })
   }, [])
 
-  const calculateUsageHours = (start: string, end: string, alwaysOn: boolean) => {
-    if (alwaysOn) return { daily: 24, peak: 0, offPeak: 24 }
-    
-    const startDate = new Date(`2000-01-01T${start}`)
-    const endDate = new Date(`2000-01-01T${end}`)
-    
-    let diff = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)
-    if (diff < 0) diff += 24
-    
-    // Simple peak/off-peak logic (assuming peak is 8am-10pm)
-    // This is a simplified calculation
-    return { daily: diff, peak: diff, offPeak: 0 }
-  }
 
   const handleSaveProfile = async () => {
     const formData = new FormData()
@@ -256,16 +236,21 @@ export default function ProfilePage() {
     const type = applianceTypes.find(t => t.id === selectedType)
     if (!type) return
 
-    const usage = calculateUsageHours(newStartTime, newEndTime, newAlwaysOn)
+    // For new appliances added in profile, use default usage hours
+    // These will be recalculated when the user updates their bill or runs analysis
+    const defaultUsageHours = 6 // Default fallback
+    const PEAK_RATIO = 0.6
+    const peakHours = defaultUsageHours * PEAK_RATIO
+    const offPeakHours = defaultUsageHours * (1 - PEAK_RATIO)
 
     const newAppliance = {
       user_id: user.id,
       name: type.name,
       watt: newWatt,
       quantity: newQuantity,
-      daily_usage_hours: usage.daily,
-      peak_usage_hours: usage.peak,
-      off_peak_usage_hours: usage.offPeak
+      daily_usage_hours: defaultUsageHours,
+      peak_usage_hours: peakHours,
+      off_peak_usage_hours: offPeakHours
     }
 
     const { data, error } = await supabase
@@ -283,26 +268,16 @@ export default function ProfilePage() {
       return
     }
 
-    const formattedAppliance = {
-      ...data,
-      alwaysOn: data.daily_usage_hours === 24,
-      startTime: "18:00",
-      endTime: "22:00"
-    }
-
-    setAppliances([...appliances, formattedAppliance])
+    setAppliances([...appliances, data])
     setIsAddDialogOpen(false)
     // Reset form
     setSelectedType("")
     setNewQuantity(1)
     setNewWatt(0)
-    setNewStartTime("18:00")
-    setNewEndTime("22:00")
-    setNewAlwaysOn(false)
     
     toast({
       title: "Appliance added",
-      description: `${type.name} has been added to your profile.`,
+      description: `${type.name} has been added to your profile. Usage hours will be calculated automatically.`,
     })
   }
 
@@ -341,13 +316,7 @@ export default function ProfilePage() {
           .single()
         
         if (data) {
-          const formattedAppliance = {
-            ...data,
-            alwaysOn: data.daily_usage_hours === 24,
-            startTime: "18:00",
-            endTime: "22:00"
-          }
-          setAppliances(appliances.map(a => a.id === id ? formattedAppliance : a))
+          setAppliances(appliances.map(a => a.id === id ? data : a))
         }
       }
       fetchAppliance()
@@ -359,32 +328,7 @@ export default function ProfilePage() {
   const updateLocalAppliance = (id: string, field: string, value: any) => {
     setAppliances(appliances.map(app => {
       if (app.id === id) {
-        const updatedApp = { ...app, [field]: value }
-        
-        // Handle Always On logic
-        if (field === 'alwaysOn') {
-          if (value === true) {
-            updatedApp.startTime = "00:00"
-            updatedApp.endTime = "23:59"
-          } else {
-            updatedApp.startTime = "18:00"
-            updatedApp.endTime = "22:00"
-          }
-        }
-
-        // Recalculate usage hours if time or alwaysOn changes
-        if (field === 'startTime' || field === 'endTime' || field === 'alwaysOn') {
-          const usage = calculateUsageHours(
-            updatedApp.startTime || "18:00", 
-            updatedApp.endTime || "22:00", 
-            updatedApp.alwaysOn || false
-          )
-          updatedApp.daily_usage_hours = usage.daily
-          updatedApp.peak_usage_hours = usage.peak
-          updatedApp.off_peak_usage_hours = usage.offPeak
-        }
-        
-        return updatedApp
+        return { ...app, [field]: value }
       }
       return app
     }))
@@ -394,14 +338,13 @@ export default function ProfilePage() {
     const appliance = appliances.find(a => a.id === id)
     if (!appliance) return
 
+    // Only allow updating quantity and watt - usage hours are calculated automatically
     const { error } = await supabase
       .from('appliances')
       .update({
         quantity: appliance.quantity,
         watt: appliance.watt,
-        daily_usage_hours: appliance.daily_usage_hours,
-        peak_usage_hours: appliance.peak_usage_hours,
-        off_peak_usage_hours: appliance.off_peak_usage_hours
+        // Usage hours are read-only, calculated by ML service
       })
       .eq('id', id)
 
@@ -633,9 +576,6 @@ export default function ProfilePage() {
                   setSelectedType("")
                   setNewQuantity(1)
                   setNewWatt(0)
-                  setNewStartTime("18:00")
-                  setNewEndTime("22:00")
-                  setNewAlwaysOn(false)
                 }
               }}>
                 <DialogTrigger asChild>
@@ -727,35 +667,9 @@ export default function ProfilePage() {
                                     )}
                                 </div>
                             </div>
-                            <div className="flex items-center space-x-2">
-                                <input
-                                  type="checkbox"
-                                  id="new-always-on"
-                                  checked={newAlwaysOn}
-                                  onChange={(e) => {
-                                      setNewAlwaysOn(e.target.checked)
-                                      if (e.target.checked) {
-                                          setNewStartTime("00:00")
-                                          setNewEndTime("23:59")
-                                      } else {
-                                          setNewStartTime("18:00")
-                                          setNewEndTime("22:00")
-                                      }
-                                  }}
-                                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                />
-                                <Label htmlFor="new-always-on" className="text-sm cursor-pointer">Always On (24 Hours)</Label>
-                            </div>
-                            <div className={cn("grid grid-cols-2 gap-4", newAlwaysOn && "opacity-50 pointer-events-none")}>
-                                <div className="space-y-2">
-                                    <Label>Start Time</Label>
-                                    <Input type="time" value={newStartTime} onChange={(e) => setNewStartTime(e.target.value)} disabled={newAlwaysOn} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>End Time</Label>
-                                    <Input type="time" value={newEndTime} onChange={(e) => setNewEndTime(e.target.value)} disabled={newAlwaysOn} />
-                                </div>
-                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Usage hours will be calculated automatically based on your energy consumption patterns.
+                            </p>
                             <Button className="w-full" onClick={handleAddAppliance}>Add Appliance</Button>
                         </div>
                     )}
@@ -815,36 +729,9 @@ export default function ProfilePage() {
                             />
                           </div>
                         </div>
-
-                        <div className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              checked={appliance.alwaysOn}
-                              onChange={(e) => updateLocalAppliance(appliance.id, 'alwaysOn', e.target.checked)}
-                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                            />
-                            <Label className="text-sm cursor-pointer">Always On (24 Hours)</Label>
-                        </div>
-
-                        <div className={cn("grid grid-cols-2 gap-4", appliance.alwaysOn && "opacity-50 pointer-events-none")}>
-                          <div className="space-y-2">
-                            <Label>Start Time</Label>
-                            <Input 
-                              type="time" 
-                              value={appliance.startTime || "18:00"} 
-                              onChange={(e) => updateLocalAppliance(appliance.id, 'startTime', e.target.value)}
-                              disabled={appliance.alwaysOn}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>End Time</Label>
-                            <Input 
-                              type="time" 
-                              value={appliance.endTime || "22:00"} 
-                              onChange={(e) => updateLocalAppliance(appliance.id, 'endTime', e.target.value)}
-                              disabled={appliance.alwaysOn}
-                            />
-                          </div>
+                        <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
+                          <p>Usage Hours: {appliance.daily_usage_hours?.toFixed(1)}h/day (calculated automatically)</p>
+                          <p>Peak: {appliance.peak_usage_hours?.toFixed(1)}h • Off-Peak: {appliance.off_peak_usage_hours?.toFixed(1)}h</p>
                         </div>
                       </div>
                     )
