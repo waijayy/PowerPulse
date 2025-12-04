@@ -53,7 +53,9 @@ type PlanItem = {
   planned_peak_hours_weekday?: number;
   planned_off_peak_hours_weekday?: number;
   planned_peak_hours_weekend?: number;
-  planned_off_peak_hours_weekend?: number;
+  planned_offpeak_hours_weekend?: number;
+  suggested_time_weekday?: string;
+  suggested_time_weekend?: string;
   monthly_savings: number;
   change: string;
 };
@@ -104,9 +106,11 @@ export default function PlanPage() {
   // Generated plan state
   const [generatedPlan, setGeneratedPlan] = useState<Plan | null>(null);
 
-  // Auto-scroll chat
+  // Auto-scroll chat only when there are messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   // Load appliances
@@ -276,9 +280,7 @@ export default function PlanPage() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              message: `Optimize my energy usage to meet the new target of RM ${nextTarget.toFixed(
-                2
-              )}. Adjust peak and off-peak hours for each appliance based on their type, wattage, and current usage schedule to achieve this target.`,
+              message: "", // Empty message to use existing plan as baseline
               targetBill: nextTarget,
             }),
           });
@@ -299,18 +301,9 @@ export default function PlanPage() {
             setShowPlanner(true);
             setExpectedMonthlyCost(planData.projected_bill || 0);
 
-            // Add a message to chat showing the auto-generated plan
-            setMessages([
-              {
-                role: "assistant",
-                content:
-                  planData.explanation ||
-                  `I've automatically optimized your plan to meet your new target of RM ${nextTarget.toFixed(
-                    2
-                  )}.`,
-                plan: planData,
-              },
-            ]);
+            // Don't add automatic message - let user interact with chatbot when ready
+            // Clear any existing messages so chatbot starts fresh
+            setMessages([]);
           }
         } catch (err) {
           console.error("Error auto-generating plan:", err);
@@ -402,17 +395,19 @@ export default function PlanPage() {
           // Use weekday or weekend hours based on active tab
           if (activeTab === "weekend") {
             return {
-              peak:
-                planItem.planned_peak_hours_weekend ||
-                planItem.planned_peak_hours_weekday * 1.2,
-              offpeak:
-                planItem.planned_off_peak_hours_weekend ||
-                planItem.planned_off_peak_hours_weekday * 1.2,
+              peak: 0, // Weekend has no peak hours
+              offpeak: planItem.planned_offpeak_hours_weekend || 0,
+              total: planItem.planned_offpeak_hours_weekend || 0,
+              suggestedTime: planItem.suggested_time_weekend || "",
+              change: planItem.change,
             };
           } else {
             return {
               peak: planItem.planned_peak_hours_weekday,
               offpeak: planItem.planned_off_peak_hours_weekday,
+              total: planItem.planned_peak_hours_weekday + planItem.planned_off_peak_hours_weekday,
+              suggestedTime: planItem.suggested_time_weekday || "",
+              change: planItem.change,
             };
           }
         }
@@ -424,19 +419,23 @@ export default function PlanPage() {
         const offpeakMatch = planItem.planned_hours?.match(
           /(\d+\.?\d*)\s*h?\s*off-?peak/i
         );
+        const peak = peakMatch ? parseFloat(peakMatch[1]) : appliance.peak_usage_hours;
+        const offpeak = offpeakMatch ? parseFloat(offpeakMatch[1]) : appliance.off_peak_usage_hours;
         return {
-          peak: peakMatch
-            ? parseFloat(peakMatch[1])
-            : appliance.peak_usage_hours,
-          offpeak: offpeakMatch
-            ? parseFloat(offpeakMatch[1])
-            : appliance.off_peak_usage_hours,
+          peak,
+          offpeak,
+          total: peak + offpeak,
+          suggestedTime: "",
+          change: planItem.change,
         };
       }
     }
     return {
       peak: appliance.peak_usage_hours,
       offpeak: appliance.off_peak_usage_hours,
+      total: appliance.peak_usage_hours + appliance.off_peak_usage_hours,
+      suggestedTime: "",
+      change: "",
     };
   };
 
@@ -458,6 +457,7 @@ export default function PlanPage() {
   return (
     <AppShell>
       <div className="container max-w-6xl mx-auto px-4 py-6 space-y-6">
+        {/* Summary Cards */}
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Last Month's Bill */}
@@ -608,9 +608,8 @@ export default function PlanPage() {
                 </div>
                 <div className="text-right">
                   <p
-                    className={`text-3xl font-bold ${
-                      isUnderBudget ? "text-green-600" : "text-orange-500"
-                    }`}
+                    className={`text-3xl font-bold ${isUnderBudget ? "text-green-600" : "text-orange-500"
+                      }`}
                   >
                     RM {displayedBill.toFixed(2)}
                   </p>
@@ -624,11 +623,10 @@ export default function PlanPage() {
               </div>
               <Progress
                 value={progressPercent}
-                className={`h-3 ${
-                  isUnderBudget
-                    ? "[&>div]:bg-green-500"
-                    : "[&>div]:bg-orange-500"
-                }`}
+                className={`h-3 ${isUnderBudget
+                  ? "[&>div]:bg-green-500"
+                  : "[&>div]:bg-orange-500"
+                  }`}
               />
               <div className="flex justify-between mt-2 text-sm">
                 <span className="text-muted-foreground">
@@ -699,17 +697,23 @@ export default function PlanPage() {
                     appliances.map((appliance) => {
                       const Icon = getApplianceIcon(appliance.name);
                       const hours = getPlannedHours(appliance);
-                      const hasChanged =
-                        generatedPlan &&
-                        (hours.peak !== appliance.peak_usage_hours ||
-                          hours.offpeak !== appliance.off_peak_usage_hours);
+
+                      // Check if appliance has been adjusted
+                      const currentTotal = appliance.peak_usage_hours + appliance.off_peak_usage_hours;
+                      const plannedTotal = hours.total;
+                      // Check if total hours changed OR if peak/off-peak distribution changed
+                      const isTotalChanged = Math.abs(currentTotal - plannedTotal) > 0.1;
+                      const isPeakChanged = Math.abs(appliance.peak_usage_hours - (hours.peak || 0)) > 0.1;
+
+                      const hasChanges = (isTotalChanged || isPeakChanged) &&
+                        hours.change &&
+                        !hours.change.toLowerCase().includes('no changes') &&
+                        !hours.change.toLowerCase().includes('no change');
 
                       return (
                         <Card
                           key={appliance.id}
-                          className={`bg-muted/30 ${
-                            hasChanged ? "ring-2 ring-green-500/50" : ""
-                          }`}
+                          className="bg-muted/30"
                         >
                           <CardContent className="py-4">
                             <div className="flex items-center gap-3 mb-4">
@@ -719,36 +723,43 @@ export default function PlanPage() {
                               <span className="font-medium">
                                 {appliance.name}
                               </span>
-                              {hasChanged && (
-                                <Badge className="bg-green-500 text-white text-xs">
-                                  Adjusted
-                                </Badge>
-                              )}
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="bg-blue-50 rounded-lg p-4">
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                                  <Clock className="h-4 w-4" />
-                                  Peak Hours
-                                </div>
-                                <p className="text-3xl font-bold text-primary">
-                                  {hours.peak}h
-                                </p>
-                              </div>
+                            {activeTab === "weekend" ? (
+                              // Weekend: Show only total hours (all off-peak)
                               <div className="bg-slate-100 rounded-lg p-4">
                                 <div className="text-sm text-muted-foreground mb-1">
                                   <span className="text-primary font-medium">
-                                    Off-Peak Hours
+                                    Total Hours <span className="text-xs">(All off-peak - Sat & Sun)</span>
                                   </span>
-                                  <p className="text-xs">
-                                    (10:00 PM - 8:00 AM, All day Sat & Sun)
-                                  </p>
                                 </div>
                                 <p className="text-3xl font-bold text-primary">
-                                  {hours.offpeak}h
+                                  {hours.total?.toFixed(1) || hours.offpeak?.toFixed(1)}h
                                 </p>
                               </div>
-                            </div>
+                            ) : (
+                              // Weekday: Show peak and off-peak separately
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="bg-blue-50 rounded-lg p-4">
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                                      <Clock className="h-4 w-4" />
+                                      <span>Peak Hours <span className="text-xs">(2pm-10pm)</span></span>
+                                    </div>
+                                    <p className="text-3xl font-bold text-primary">
+                                      {hours.peak?.toFixed(1)}h
+                                    </p>
+                                  </div>
+                                  <div className="bg-slate-100 rounded-lg p-4">
+                                    <div className="text-sm text-muted-foreground mb-1">
+                                      Off-Peak Hours <span className="text-xs">(10pm-2pm next day)</span>
+                                    </div>
+                                    <p className="text-3xl font-bold text-primary">
+                                      {hours.offpeak?.toFixed(1)}h
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
                       );
@@ -810,110 +821,184 @@ export default function PlanPage() {
                     </div>
                   )}
 
-                  {messages.map((msg, i) => (
-                    <div key={i} className="space-y-3">
-                      <div
-                        className={`flex gap-3 ${
-                          msg.role === "user" ? "justify-end" : "justify-start"
-                        }`}
-                      >
-                        {msg.role === "assistant" && (
-                          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
-                            <Sparkles className="h-4 w-4 text-white" />
-                          </div>
-                        )}
+                  {messages.map((msg, i) => {
+                    // 1. Calculate the Theoretical Current Bill (based on original appliance list)
+                    const calculatedCurrentBill = appliances.reduce((total, app) => {
+                      const kWh = app.watt / 1000;
+                      const peakRate = 0.2583;
+                      const offPeakRate = 0.2443;
+
+                      // Weekday (5 days): Use the daily peak/off-peak from the appliance object
+                      const dailyWeekdayCost = app.quantity * kWh * (app.peak_usage_hours * peakRate + app.off_peak_usage_hours * offPeakRate);
+
+                      // Weekend (2 days): Use the daily peak/off-peak from the appliance object (or assume all off-peak if that's the rule)
+                      // The user said "off-peak hour: 2pm-10pm and all day Sat n Sun". 
+                      // So for Weekend, we should treat ALL hours as off-peak.
+                      // Total daily hours = peak + off_peak
+                      const totalDailyHours = app.peak_usage_hours + app.off_peak_usage_hours;
+                      const dailyWeekendCost = app.quantity * kWh * (totalDailyHours * offPeakRate);
+
+                      const monthlyCost = (dailyWeekdayCost * (30 * 5 / 7)) + (dailyWeekendCost * (30 * 2 / 7));
+                      return total + monthlyCost;
+                    }, 0);
+
+                    // 2. Calculate Scaling Ratio
+                    // This ratio aligns the "Theoretical" bill with the "Actual/Displayed" bill (which might be from the database)
+                    const scalingRatio = calculatedCurrentBill > 0 ? displayedBill / calculatedCurrentBill : 1;
+
+                    // 3. Calculate the Latest Bill based on the plan
+                    let calculatedLatestBill = 0;
+                    if (msg.plan && msg.plan.plan) {
+                      calculatedLatestBill = msg.plan.plan.reduce((total, item) => {
+                        const appliance = appliances.find(
+                          (a) =>
+                            a.name.toLowerCase().includes(item.name.toLowerCase()) ||
+                            item.name.toLowerCase().includes(a.name.toLowerCase())
+                        );
+
+                        if (appliance) {
+                          const kWh = appliance.watt / 1000;
+                          const peakRate = 0.2583;
+                          const offPeakRate = 0.2443;
+
+                          // Weekday cost (approx 21.4 days)
+                          const weekdayPeakHours = item.planned_peak_hours_weekday || 0;
+                          const weekdayOffPeakHours = item.planned_off_peak_hours_weekday || 0;
+                          const dailyWeekdayCost =
+                            appliance.quantity *
+                            kWh *
+                            (weekdayPeakHours * peakRate + weekdayOffPeakHours * offPeakRate);
+
+                          // Weekend cost (approx 8.6 days)
+                          // Assuming weekend is all off-peak as per user instruction "all day Sat n Sun"
+                          const weekendHours = item.planned_offpeak_hours_weekend || 0;
+                          const dailyWeekendCost =
+                            appliance.quantity *
+                            kWh *
+                            (weekendHours * offPeakRate);
+
+                          const monthlyCost = (dailyWeekdayCost * (30 * 5 / 7)) + (dailyWeekendCost * (30 * 2 / 7));
+                          return total + monthlyCost;
+                        }
+                        return total;
+                      }, 0);
+                    }
+
+                    // 4. Apply Scaling Ratio to Latest Bill
+                    const rawLatestBill = calculatedLatestBill > 0 ? calculatedLatestBill : (msg.plan?.projected_bill || 0);
+                    const latestBill = rawLatestBill * scalingRatio;
+
+                    return (
+                      <div key={i} className="space-y-3">
                         <div
-                          className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                            msg.role === "user"
+                          className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"
+                            }`}
+                        >
+                          {msg.role === "assistant" && (
+                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
+                              <Sparkles className="h-4 w-4 text-white" />
+                            </div>
+                          )}
+                          <div
+                            className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === "user"
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted"
-                          }`}
-                        >
-                          <p className="whitespace-pre-wrap">{msg.content}</p>
+                              }`}
+                          >
+                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                          </div>
+                          {msg.role === "user" && (
+                            <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0">
+                              <User className="h-4 w-4 text-primary-foreground" />
+                            </div>
+                          )}
                         </div>
-                        {msg.role === "user" && (
-                          <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-                            <User className="h-4 w-4 text-primary-foreground" />
+
+                        {/* Show plan details */}
+                        {msg.plan && (
+                          <div className="ml-11 space-y-3">
+                            {/* Summary cards */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="bg-muted/50 rounded-lg p-3 text-center">
+                                <div className="text-xs text-muted-foreground">
+                                  Current
+                                </div>
+                                <div className="font-bold">
+                                  RM {displayedBill.toFixed(2)}
+                                </div>
+                              </div>
+                              <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
+                                <div className="text-xs text-muted-foreground">
+                                  Latest
+                                </div>
+                                <div className="font-bold text-green-600">
+                                  RM {latestBill.toFixed(2)}
+                                </div>
+                              </div>
+                              {displayedBill - latestBill >= 0 ? (
+                                <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
+                                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                                    <TrendingDown className="h-3 w-3" /> You Save
+                                  </div>
+                                  <div className="font-bold text-green-600">
+                                    RM {(displayedBill - latestBill).toFixed(2)}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="bg-red-500/10 rounded-lg p-3 text-center border border-red-500/30">
+                                  <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                                    <TrendingDown className="h-3 w-3 rotate-180" /> Bill Increase
+                                  </div>
+                                  <div className="font-bold text-red-600">
+                                    RM {Math.abs(displayedBill - latestBill).toFixed(2)}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Plan details */}
+                            {msg.plan.plan && msg.plan.plan.length > 0 && (
+                              <div className="bg-muted/30 rounded-xl p-4 space-y-3">
+                                <div className="text-sm font-medium flex items-center gap-2">
+                                  <Zap className="h-4 w-4 text-yellow-500" />
+                                  Changes Applied to Your Schedule
+                                </div>
+                                {msg.plan.plan.map((item, j) => (
+                                  <div
+                                    key={j}
+                                    className={`bg-background rounded-lg p-3 space-y-1 ${item.change &&
+                                      !item.change.toLowerCase().includes('no changes') &&
+                                      !item.change.toLowerCase().includes('no change')
+                                      ? 'border-2 border-green-500'
+                                      : ''
+                                      }`}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-medium">
+                                        {item.name}
+                                      </span>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                                      <span>{item.current_hours}</span>
+                                      <ArrowRight className="h-3 w-3" />
+                                      <span className="text-green-600 font-medium whitespace-pre-line">
+                                        {item.planned_hours}
+                                      </span>
+                                    </div>
+
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-sm text-green-700">
+                              ✓ Schedule above has been updated with these changes
+                            </div>
                           </div>
                         )}
                       </div>
-
-                      {/* Show plan details */}
-                      {msg.plan && (
-                        <div className="ml-11 space-y-3">
-                          {/* Summary cards */}
-                          <div className="grid grid-cols-3 gap-2">
-                            <div className="bg-muted/50 rounded-lg p-3 text-center">
-                              <div className="text-xs text-muted-foreground">
-                                Current
-                              </div>
-                              <div className="font-bold">
-                                RM {currentBill.toFixed(2)}
-                              </div>
-                            </div>
-                            <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
-                              <div className="text-xs text-muted-foreground">
-                                Projected
-                              </div>
-                              <div className="font-bold text-green-600">
-                                RM {msg.plan.projected_bill.toFixed(2)}
-                              </div>
-                            </div>
-                            <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
-                              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                <TrendingDown className="h-3 w-3" /> You Save
-                              </div>
-                              <div className="font-bold text-green-600">
-                                RM {msg.plan.total_savings.toFixed(2)}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Plan details */}
-                          {msg.plan.plan && msg.plan.plan.length > 0 && (
-                            <div className="bg-muted/30 rounded-xl p-4 space-y-3">
-                              <div className="text-sm font-medium flex items-center gap-2">
-                                <Zap className="h-4 w-4 text-yellow-500" />
-                                Changes Applied to Your Schedule
-                              </div>
-                              {msg.plan.plan.map((item, j) => (
-                                <div
-                                  key={j}
-                                  className="bg-background rounded-lg p-3 space-y-1"
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-medium">
-                                      {item.name}
-                                    </span>
-                                    {item.monthly_savings > 0 && (
-                                      <Badge className="bg-green-500 text-xs">
-                                        Save RM{" "}
-                                        {item.monthly_savings.toFixed(2)}/mo
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground flex items-center gap-2">
-                                    <span>{item.current_hours}</span>
-                                    <ArrowRight className="h-3 w-3" />
-                                    <span className="text-green-600 font-medium">
-                                      {item.planned_hours}
-                                    </span>
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    💡 {item.change}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-sm text-green-700">
-                            ✓ Schedule above has been updated with these changes
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
 
                   {isLoading && (
                     <div className="flex gap-3">

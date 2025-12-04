@@ -1,7 +1,9 @@
 import { createClient } from '@/utils/supabase/server'
 import { NextResponse } from 'next/server'
-import Groq from 'groq-sdk'
 import { calculatePersonalizedPlan } from '@/utils/plan-calculator'
+import Groq from 'groq-sdk'
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' })
 
 export async function POST(req: Request) {
   try {
@@ -26,7 +28,7 @@ export async function POST(req: Request) {
       }, { status: 400 })
     }
 
-    // Fetch billing profile (last month bill + target bill)
+    // Fetch billing profile
     const { data: profile } = await supabase
       .from('profiles')
       .select('total_bill_amount, monthly_budget_target')
@@ -36,258 +38,327 @@ export async function POST(req: Request) {
     const lastMonthBill = profile?.total_bill_amount ?? 0
     const effectiveTargetBill = profile?.monthly_budget_target ?? targetBill ?? 150
 
-    // Calculate current costs using given peak/off-peak rates (RM/kWh)
-    const peakRate = 0.2583
-    const offPeakRate = 0.2443
+    let planData;
 
-    const applianceData = appliances.map((app) => {
-      const kWh = app.watt / 1000
-      const dailyPeakCost = app.quantity * kWh * app.peak_usage_hours * peakRate
-      const dailyOffPeakCost = app.quantity * kWh * app.off_peak_usage_hours * offPeakRate
-      const dailyCost = dailyPeakCost + dailyOffPeakCost
-
-      return {
-        name: app.name,
-        quantity: app.quantity,
-        watt: app.watt,
-        kWh: kWh,
-        peak_hours: app.peak_usage_hours,
-        offpeak_hours: app.off_peak_usage_hours,
-        usage_start_time: app.usage_start_time,
-        usage_end_time: app.usage_end_time,
-        daily_cost: dailyCost,
-        monthly_cost: dailyCost * 30
+    if (message) {
+      if (!process.env.GROQ_API_KEY) {
+        console.error('GROQ_API_KEY is missing')
+        return NextResponse.json({ error: 'AI service is not configured (missing API key).' }, { status: 500 })
       }
-    })
 
-    const currentMonthlyBill = applianceData.reduce((sum, app) => sum + app.monthly_cost, 0)
-    const baselineBill = lastMonthBill > 0 ? lastMonthBill : currentMonthlyBill
-    const requiredSavings = Math.max(0, baselineBill - effectiveTargetBill)
+      // AI Chat Mode: Adjust existing plan
+      // Fetch the current plan from DB to use as context
+      const { data: existingPlanData } = await supabase
+        .from('planning')
+        .select('plan_data')
+        .eq('user_id', user.id)
+        .single()
 
-    // Use smart calculator to generate base plan based on target
-    const calculatedPlan = calculatePersonalizedPlan(
-      appliances.map((app) => ({
-        name: app.name,
-        quantity: app.quantity,
-        watt: app.watt,
-        peak_usage_hours: app.peak_usage_hours,
-        off_peak_usage_hours: app.off_peak_usage_hours,
-      })),
-      lastMonthBill,
-      effectiveTargetBill
-    )
+      let currentPlanContext = existingPlanData?.plan_data
 
-    // Format calculator result to match expected plan format
-    const formattedPlan = calculatedPlan.plan.map((item) => {
-      // Use weekday hours for display (or average if needed)
-      const avgPeak = (item.planned_peak_hours_weekday * 5 + item.planned_peak_hours_weekend * 2) / 7
-      const avgOffPeak = (item.planned_offpeak_hours_weekday * 5 + item.planned_offpeak_hours_weekend * 2) / 7
-
-      return {
-        name: item.name,
-        current_hours: `${item.last_month_peak_hours}h peak + ${item.last_month_offpeak_hours}h off-peak`,
-        planned_hours: `${avgPeak.toFixed(1)}h peak + ${avgOffPeak.toFixed(1)}h off-peak`,
-        planned_peak_hours: Math.round(avgPeak * 10) / 10,
-        planned_off_peak_hours: Math.round(avgOffPeak * 10) / 10,
-        monthly_savings: item.monthly_savings,
-        change: `Reduced from ${item.last_month_peak_hours}h peak + ${item.last_month_offpeak_hours}h off-peak to optimize for target bill`,
-        // Include weekday/weekend breakdown for frontend
-        planned_peak_hours_weekday: item.planned_peak_hours_weekday,
-        planned_off_peak_hours_weekday: item.planned_offpeak_hours_weekday,
-        planned_peak_hours_weekend: item.planned_peak_hours_weekend,
-        planned_off_peak_hours_weekend: item.planned_offpeak_hours_weekend,
-      }
-    })
-
-    // If user has a specific message request, use AI to refine, otherwise use calculator result
-    const hasSpecificRequest = message && message.trim().length > 0 &&
-      !message.toLowerCase().includes('optimize') &&
-      !message.toLowerCase().includes('target')
-
-    if (hasSpecificRequest) {
-      // Use AI to refine based on user request
-      // Build the AI prompt
-      const systemPrompt = `You are an AI energy optimizer for PowerPulse, a Malaysian electricity management app.
-
-ELECTRICITY RATES (Malaysian Ringgit per kWh):
-- Peak hours (8am-10pm): RM ${peakRate.toFixed(4)}/kWh
-- Off-peak hours (10pm-8am): RM ${offPeakRate.toFixed(4)}/kWh
-- Shifting from peak to off-peak saves money because off-peak is cheaper
-
-USER'S CURRENT APPLIANCES (FROM DATABASE):
-${applianceData.map(a => `- ${a.name}: ${a.quantity} unit(s), ${a.watt}W (${a.kWh}kWh), scheduled ${a.usage_start_time || 'N/A'} to ${a.usage_end_time || 'N/A'} daily, currently ${a.peak_hours}h peak + ${a.offpeak_hours}h off-peak daily = RM ${a.monthly_cost.toFixed(2)}/month`).join('\n')}
-
-MODEL BASELINE:
-- Last month's actual bill (from user profile): RM ${lastMonthBill.toFixed(2)}
-- Modelled bill from current appliance usage: RM ${currentMonthlyBill.toFixed(2)}
-- Baseline used for planning (max of the two): RM ${baselineBill.toFixed(2)}
-
-TARGET MONTHLY BILL (from user profile if available): RM ${effectiveTargetBill.toFixed(2)}
-REQUIRED SAVINGS: RM ${requiredSavings.toFixed(2)}
-
-YOUR TASK:
-Based on the user's request, create an optimized energy plan. 
-
-RULES:
-1. If user wants to INCREASE usage of an appliance (e.g., "more AC"), you MUST DECREASE other appliances to compensate.
-2. ALWAYS try to shift usage to off-peak hours when possible, especially for non-essential loads.
-3. NEVER reduce Refrigerator below 24 hours (always on) – keep most of its energy in off-peak hours as much as practical.
-4. Prioritize reducing non-essential appliances (TV, PC, Lights) before essentials.
-5. The projected_bill MUST be at or below the target monthly bill.
-6. DO NOT give every appliance the same planned hours. Tailor planned_peak_hours and planned_off_peak_hours to each appliance's type, wattage and current schedule. High-watt appliances (like AC) should usually have more aggressive off-peak shifting than low-watt appliances (like LED lights).
-
-RESPOND WITH ONLY THIS JSON (no other text):
-{
-  "plan": [
-    {
-      "name": "Appliance Name",
-      "current_hours": "Xh peak + Yh off-peak",
-      "planned_hours": "Ah peak + Bh off-peak",
-      "planned_peak_hours": 5,
-      "planned_off_peak_hours": 2,
-      "monthly_savings": 15.50,
-      "change": "Brief explanation of change"
-    }
-  ],
-  "projected_bill": 120.00,
-  "total_savings": 30.00,
-  "explanation": "Friendly 2-3 sentence summary of the plan and key tips"
-}`
-
-      const client = new Groq({
-        apiKey: process.env.GROQ_API_KEY,
-      })
-
-      const response = await client.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `User request: "${message}"\n\nCreate a plan that accommodates this while keeping the monthly bill under RM ${effectiveTargetBill}.` }
-        ],
-        temperature: 0.2,
-        max_tokens: 2000,
-      })
-
-      const aiResponse = response.choices[0].message.content
-
-      // Parse the JSON response
-      try {
-        const jsonMatch = aiResponse?.match(/\{[\s\S]*\}/)
-        if (!jsonMatch) {
-          throw new Error('No JSON found in response')
-        }
-
-        const planData = JSON.parse(jsonMatch[0])
-
-        // Save to planning table (upsert - will update if user_id exists)
-        const { error: planError } = await supabase
-          .from('planning')
-          .upsert({
-            user_id: user.id,
-            plan_data: planData
-          }, { onConflict: 'user_id' })
-
-        if (planError) {
-          console.error('Error saving plan:', planError)
-          return NextResponse.json({
-            error: `Failed to save plan: ${planError.message}`,
-            details: planError
-          }, { status: 500 })
-        }
-
-        // Update profiles table with expected monthly cost
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({
-            expected_monthly_cost: planData.projected_bill
-          })
-          .eq('id', user.id)
-
-        if (profileError) console.error('Error updating profile cost:', profileError)
-
-        return NextResponse.json({
-          ...planData,
-          currentBill: baselineBill,
-          targetBill: effectiveTargetBill,
-          lastMonthBill
-        })
-      } catch (parseError) {
-        console.error('Failed to parse AI response:', aiResponse)
-        // Fall back to calculator result if AI fails
-        const planData = {
-          plan: formattedPlan,
+      // If no existing plan, generate a fresh one first
+      if (!currentPlanContext) {
+        const calculatedPlan = calculatePersonalizedPlan(
+          appliances.map((app) => ({
+            name: app.name,
+            quantity: app.quantity,
+            watt: app.watt,
+            peak_usage_hours: app.peak_usage_hours,
+            off_peak_usage_hours: app.off_peak_usage_hours,
+            usage_start_time: app.usage_start_time,
+            usage_end_time: app.usage_end_time,
+          })),
+          lastMonthBill,
+          effectiveTargetBill
+        )
+        // We need to format it to match the structure expected by AI/Frontend
+        currentPlanContext = {
+          plan: calculatedPlan.plan.map((item) => ({
+            name: item.name,
+            planned_peak_hours_weekday: item.planned_peak_hours_weekday,
+            planned_off_peak_hours_weekday: item.planned_offpeak_hours_weekday,
+            planned_peak_hours_weekend: item.planned_peak_hours_weekend,
+            planned_offpeak_hours_weekend: item.planned_offpeak_hours_weekend,
+            suggested_time_weekday: item.suggested_time_weekday,
+            suggested_time_weekend: item.suggested_time_weekend,
+            monthly_savings: item.monthly_savings,
+            change: 'Optimized for target bill'
+          })),
           projected_bill: calculatedPlan.projected_bill,
-          total_savings: calculatedPlan.total_savings,
-          explanation: calculatedPlan.explanation,
+          total_savings: calculatedPlan.total_savings
         }
+      }
 
-        // Save calculator plan
-        await supabase
-          .from('planning')
-          .upsert({
-            user_id: user.id,
-            plan_data: planData
-          }, { onConflict: 'user_id' })
 
-        await supabase
-          .from('profiles')
-          .update({
-            expected_monthly_cost: calculatedPlan.projected_bill
-          })
-          .eq('id', user.id)
+      // Build enhanced current plan with all necessary context
+      const enhancedPlanContext = {
+        ...currentPlanContext,
+        plan: currentPlanContext.plan.map((planItem: any) => {
+          const appliance = appliances.find(app => app.name === planItem.name)
 
-        return NextResponse.json({
-          ...planData,
-          currentBill: baselineBill,
-          targetBill: effectiveTargetBill,
-          lastMonthBill
+          // Calculate current averaged hours from the plan (what's shown in UI)
+          const currentAvgPeak = (
+            (planItem.planned_peak_hours_weekday || 0) * 5 +
+            (planItem.planned_peak_hours_weekend || 0) * 2
+          ) / 7
+          const currentAvgOffPeak = (
+            (planItem.planned_off_peak_hours_weekday || 0) * 5 +
+            (planItem.planned_offpeak_hours_weekend || 0) * 2
+          ) / 7
+
+          return {
+            ...planItem,
+            watt: appliance?.watt || 0,
+            quantity: appliance?.quantity || 1,
+            last_month_peak_hours: appliance?.peak_usage_hours || 0,
+            last_month_offpeak_hours: appliance?.off_peak_usage_hours || 0,
+            // Add explicit current values for AI clarity
+            current_avg_peak_hours: Math.round(currentAvgPeak * 10) / 10,
+            current_avg_offpeak_hours: Math.round(currentAvgOffPeak * 10) / 10
+          }
         })
       }
+
+      const systemPrompt = `You are an energy planning assistant for PowerPulse.
+      
+      BILLING CONTEXT:
+      - Previous Month Bill: $${lastMonthBill}
+      - Target Next Month Bill: $${effectiveTargetBill}
+      - Required Savings: $${lastMonthBill - effectiveTargetBill}
+      
+      CURRENT PERSONALIZED PLAN (Your baseline to adjust):
+      ${JSON.stringify(enhancedPlanContext, null, 2)}
+      
+      User Request: "${message}"
+      
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      CRITICAL INSTRUCTIONS:
+      
+      ⚠️ BASELINE VALUES TO USE:
+      For each appliance, the CURRENT plan values are the SPECIFIC weekday/weekend breakdowns:
+      - planned_peak_hours_weekday (e.g., for Computer/PC it's 1.2h)
+      - planned_off_peak_hours_weekday (e.g., for Computer/PC it's 1.7h)
+      - planned_peak_hours_weekend (always 0 - weekends have no peak)
+      - planned_offpeak_hours_weekend (e.g., for Computer/PC it's 1.4h)
+      
+      YOU MUST adjust from these CURRENT SPECIFIC VALUES, NOT from last_month values or averaged values!
+      
+      STEPS:
+      1. Look at each appliance's CURRENT weekday/weekend breakdown values
+      2. Modify the specific weekday/weekend hours according to user request
+      3. INCREMENT RULE: If user asks to "use more" without specifying an amount, increase by ONLY 1.0 to 1.5 hours total. DO NOT increase more than this unless explicitly asked.
+      4. TRADE-OFF RULE: If you increase usage of one appliance, you MUST DECREASE usage of other high-wattage appliances (like Water Heater, Washing Machine, etc.) to compensate.
+      5. PRIORITIZE reducing HIGH WATTAGE appliances first (check 'watt' value) for maximum impact.
+      6. Keep hours reasonable (weekday peak: 0-8h, weekday off-peak: 0-16h, weekend: 0-24h all off-peak)
+      
+      CONSTRAINTS per appliance:
+      - Refrigerator: MUST NOT BE CHANGED. It must run 24 hours/day (Weekday: 8h peak + 16h off-peak, Weekend: 24h off-peak). DO NOT REDUCE THIS.
+      - Weekday Peak Hours: 0-8h (rate: $0.2583/kWh, 2pm-10pm)
+      - Weekday Off-Peak Hours: 0-16h (rate: $0.2443/kWh, 10pm-2pm next day)
+      - Weekend: all off-peak (0-24h)
+      
+      BUDGET GOAL:
+      - The projected_bill should be close to the current bill.
+      - It is acceptable if it increases slightly, but it MUST NOT exceed the Target Bill ($${effectiveTargetBill}) significantly.
+      
+      CALCULATIONS:
+      - Monthly savings = (last_month_peak - new_peak) × watt × 0.57 × 30 / 1000
+                        + (last_month_offpeak - new_offpeak) × watt × 0.33 × 30 / 1000
+      - Projected bill = Previous Bill - Total Savings
+      
+      UPDATE 'change' field: Describe changes from CURRENT plan using SPECIFIC values
+      (e.g., "Weekday: 1.2h→1.0h peak, 1.7h→2.0h off-peak")
+      
+      OUTPUT JSON:
+      {
+        "plan": [
+          {
+            "name": "string",
+            "planned_peak_hours_weekday": number,
+            "planned_off_peak_hours_weekday": number,
+            "planned_peak_hours_weekend": number,
+            "planned_offpeak_hours_weekend": number,
+            "suggested_time_weekday": "string",
+            "suggested_time_weekend": "string",
+            "monthly_savings": number,
+            "change": "string"
+          }
+        ],
+        "projected_bill": number,
+        "total_savings": number,
+        "explanation": "string"
+      }
+      `
+
+      // Debug logging
+      console.log('========== AI DEBUGGING ==========')
+      console.log('Enhanced Plan Context:', JSON.stringify(enhancedPlanContext, null, 2))
+      console.log('User Message:', message)
+      console.log('==================================')
+
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ],
+        model: 'llama-3.3-70b-versatile',
+        response_format: { type: 'json_object' }
+      })
+
+      const content = completion.choices[0].message.content
+      if (!content) {
+        throw new Error('AI returned empty content')
+      }
+      const aiResponse = JSON.parse(content)
+
+      // Post-process to ensure all fields are present (like current_hours strings)
+      // Use the CURRENT PLAN's weekday/weekend breakdown values as the baseline
+      // This ensures the AI shows what's currently displayed on plan/page.tsx
+      const aiPlan = aiResponse.plan || []
+
+      // Debug: Log available plan names
+      console.log('========== NAME MATCHING DEBUG ==========')
+      console.log('Enhanced Plan Context names:', enhancedPlanContext.plan.map((p: any) => p.name))
+      console.log('AI Response plan names:', aiPlan.map((p: any) => p.name))
+      console.log('=========================================')
+
+      const formattedPlan = aiPlan.map((item: any) => {
+        // Find the current plan item to get the CURRENT weekday/weekend breakdown
+        // Use flexible matching: exact match first, then case-insensitive, then partial match
+        let currentPlanItem = enhancedPlanContext.plan.find((p: any) => p.name === item.name)
+
+        if (!currentPlanItem) {
+          // Try case-insensitive match
+          currentPlanItem = enhancedPlanContext.plan.find((p: any) =>
+            p.name.toLowerCase() === item.name.toLowerCase()
+          )
+        }
+
+        if (!currentPlanItem) {
+          // Try partial match (contains)
+          currentPlanItem = enhancedPlanContext.plan.find((p: any) =>
+            p.name.toLowerCase().includes(item.name.toLowerCase()) ||
+            item.name.toLowerCase().includes(p.name.toLowerCase())
+          )
+        }
+
+        console.log(`Matching "${item.name}": ${currentPlanItem ? 'FOUND' : 'NOT FOUND'}`, currentPlanItem?.name)
+
+        // Use current plan's WEEKDAY breakdown as "current_hours" (what's shown in plan UI)
+        const currentPeakWeekday = currentPlanItem?.planned_peak_hours_weekday || 0
+        const currentOffPeakWeekday = currentPlanItem?.planned_off_peak_hours_weekday || 0
+        const currentOffPeakWeekend = currentPlanItem?.planned_offpeak_hours_weekend || 0
+
+        // Format: Show weekday breakdown and weekend breakdown separately for clarity
+        const plannedHoursFormatted = `Weekday: ${item.planned_peak_hours_weekday.toFixed(1)}h peak + ${item.planned_off_peak_hours_weekday.toFixed(1)}h off-peak\nWeekend: ${(item.planned_offpeak_hours_weekend || 0).toFixed(1)}h off-peak`
+
+        const avgPeak = (item.planned_peak_hours_weekday * 5 + (item.planned_peak_hours_weekend || 0) * 2) / 7
+        const avgOffPeak = (item.planned_off_peak_hours_weekday * 5 + (item.planned_offpeak_hours_weekend || 0) * 2) / 7
+
+        return {
+          name: item.name,
+          current_hours: `Weekday: ${currentPeakWeekday.toFixed(1)}h peak + ${currentOffPeakWeekday.toFixed(1)}h off-peak | Weekend: ${currentOffPeakWeekend.toFixed(1)}h`,
+          planned_hours: plannedHoursFormatted,
+          planned_peak_hours: Math.round(avgPeak * 10) / 10,
+          planned_off_peak_hours: Math.round(avgOffPeak * 10) / 10,
+          monthly_savings: item.monthly_savings,
+          change: item.change || 'Optimized for target bill',
+          planned_peak_hours_weekday: item.planned_peak_hours_weekday,
+          planned_off_peak_hours_weekday: item.planned_off_peak_hours_weekday,
+          planned_peak_hours_weekend: item.planned_peak_hours_weekend || 0,
+          planned_offpeak_hours_weekend: item.planned_offpeak_hours_weekend || 0,
+          suggested_time_weekday: item.suggested_time_weekday,
+          suggested_time_weekend: item.suggested_time_weekend
+        }
+      })
+
+      planData = {
+        plan: formattedPlan,
+        projected_bill: aiResponse.projected_bill,
+        total_savings: aiResponse.total_savings,
+        explanation: aiResponse.explanation
+      }
+
     } else {
-      // No specific request, use calculator result directly
-      const planData = {
+      // Calculator Mode: Generate fresh plan
+      const calculatedPlan = calculatePersonalizedPlan(
+        appliances.map((app) => ({
+          name: app.name,
+          quantity: app.quantity,
+          watt: app.watt,
+          peak_usage_hours: app.peak_usage_hours,
+          off_peak_usage_hours: app.off_peak_usage_hours,
+          usage_start_time: app.usage_start_time,
+          usage_end_time: app.usage_end_time,
+        })),
+        lastMonthBill,
+        effectiveTargetBill
+      )
+
+      const formattedPlan = calculatedPlan.plan.map((item) => {
+        const avgPeak = (item.planned_peak_hours_weekday * 5 + item.planned_peak_hours_weekend * 2) / 7
+        const avgOffPeak = (item.planned_offpeak_hours_weekday * 5 + item.planned_offpeak_hours_weekend * 2) / 7
+
+        return {
+          name: item.name,
+          current_hours: `${item.last_month_peak_hours.toFixed(1)}h peak + ${item.last_month_offpeak_hours.toFixed(1)}h off-peak`,
+          planned_hours: `${avgPeak.toFixed(1)}h peak + ${avgOffPeak.toFixed(1)}h off-peak`,
+          planned_peak_hours: Math.round(avgPeak * 10) / 10,
+          planned_off_peak_hours: Math.round(avgOffPeak * 10) / 10,
+          monthly_savings: Math.round(item.monthly_savings * 10) / 10,
+          change: `Optimized for target bill`,
+          planned_peak_hours_weekday: item.planned_peak_hours_weekday,
+          planned_off_peak_hours_weekday: item.planned_offpeak_hours_weekday,
+          planned_peak_hours_weekend: item.planned_peak_hours_weekend,
+          planned_offpeak_hours_weekend: item.planned_offpeak_hours_weekend,
+          suggested_time_weekday: item.suggested_time_weekday,
+          suggested_time_weekend: item.suggested_time_weekend,
+        }
+      })
+
+      planData = {
         plan: formattedPlan,
         projected_bill: calculatedPlan.projected_bill,
         total_savings: calculatedPlan.total_savings,
         explanation: calculatedPlan.explanation,
       }
-
-      // Save to planning table
-      const { error: planError } = await supabase
-        .from('planning')
-        .upsert({
-          user_id: user.id,
-          plan_data: planData
-        }, { onConflict: 'user_id' })
-
-      if (planError) {
-        console.error('Error saving plan:', planError)
-        return NextResponse.json({
-          error: `Failed to save plan: ${planError.message}`,
-          details: planError
-        }, { status: 500 })
-      }
-
-      // Update profiles table with expected monthly cost
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          expected_monthly_cost: calculatedPlan.projected_bill
-        })
-        .eq('id', user.id)
-
-      if (profileError) console.error('Error updating profile cost:', profileError)
-
-      return NextResponse.json({
-        ...planData,
-        currentBill: baselineBill,
-        targetBill: effectiveTargetBill,
-        lastMonthBill
-      })
     }
+
+    // Save to planning table
+    const { error: planError } = await supabase
+      .from('planning')
+      .upsert({
+        user_id: user.id,
+        plan_data: planData
+      }, { onConflict: 'user_id' })
+
+    if (planError) {
+      console.error('Error saving plan:', planError)
+    }
+
+    // Update profiles table with expected monthly cost
+    await supabase
+      .from('profiles')
+      .update({
+        expected_monthly_cost: planData.projected_bill
+      })
+      .eq('id', user.id)
+
+    return NextResponse.json({
+      ...planData,
+      currentBill: lastMonthBill,
+      targetBill: effectiveTargetBill,
+      lastMonthBill
+    })
 
   } catch (error) {
     console.error('Plan API error:', error)
-    return NextResponse.json({ error: 'Failed to generate plan. Please try again.' }, { status: 500 })
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+    }
+    return NextResponse.json({
+      error: `Failed to generate plan: ${error instanceof Error ? error.message : 'Unknown error'}`
+    }, { status: 500 })
   }
 }
