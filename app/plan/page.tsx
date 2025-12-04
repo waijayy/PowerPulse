@@ -608,9 +608,8 @@ export default function PlanPage() {
                 </div>
                 <div className="text-right">
                   <p
-                    className={`text-3xl font-bold ${
-                      isUnderBudget ? "text-green-600" : "text-orange-500"
-                    }`}
+                    className={`text-3xl font-bold ${isUnderBudget ? "text-green-600" : "text-orange-500"
+                      }`}
                   >
                     RM {displayedBill.toFixed(2)}
                   </p>
@@ -624,11 +623,10 @@ export default function PlanPage() {
               </div>
               <Progress
                 value={progressPercent}
-                className={`h-3 ${
-                  isUnderBudget
-                    ? "[&>div]:bg-green-500"
-                    : "[&>div]:bg-orange-500"
-                }`}
+                className={`h-3 ${isUnderBudget
+                  ? "[&>div]:bg-green-500"
+                  : "[&>div]:bg-orange-500"
+                  }`}
               />
               <div className="flex justify-between mt-2 text-sm">
                 <span className="text-muted-foreground">
@@ -707,9 +705,8 @@ export default function PlanPage() {
                       return (
                         <Card
                           key={appliance.id}
-                          className={`bg-muted/30 ${
-                            hasChanged ? "ring-2 ring-green-500/50" : ""
-                          }`}
+                          className={`bg-muted/30 ${hasChanged ? "ring-2 ring-green-500/50" : ""
+                            }`}
                         >
                           <CardContent className="py-4">
                             <div className="flex items-center gap-3 mb-4">
@@ -813,9 +810,8 @@ export default function PlanPage() {
                   {messages.map((msg, i) => (
                     <div key={i} className="space-y-3">
                       <div
-                        className={`flex gap-3 ${
-                          msg.role === "user" ? "justify-end" : "justify-start"
-                        }`}
+                        className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"
+                          }`}
                       >
                         {msg.role === "assistant" && (
                           <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
@@ -823,11 +819,10 @@ export default function PlanPage() {
                           </div>
                         )}
                         <div
-                          className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                            msg.role === "user"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted"
-                          }`}
+                          className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === "user"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted"
+                            }`}
                         >
                           <p className="whitespace-pre-wrap">{msg.content}</p>
                         </div>

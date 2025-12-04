@@ -128,3 +128,18 @@ export async function completeSetup(billAmount: number, billKwh: number, budgetT
     revalidatePath('/dashboard')
     return { success: true }
 }
+
+export async function getProfile() {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) return null
+
+    const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+    return data
+}
