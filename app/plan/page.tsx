@@ -713,12 +713,7 @@ export default function PlanPage() {
                       return (
                         <Card
                           key={appliance.id}
-<<<<<<< HEAD
                           className="bg-muted/30"
-=======
-                          className={`bg-muted/30 ${hasChanged ? "ring-2 ring-green-500/50" : ""
-                            }`}
->>>>>>> e1e81e4d78ff07d64c274c7aabb79dff70904d5c
                         >
                           <CardContent className="py-4">
                             <div className="flex items-center gap-3 mb-4">
@@ -826,7 +821,6 @@ export default function PlanPage() {
                     </div>
                   )}
 
-<<<<<<< HEAD
                   {messages.map((msg, i) => {
                     // 1. Calculate the Theoretical Current Bill (based on original appliance list)
                     const calculatedCurrentBill = appliances.reduce((total, app) => {
@@ -918,26 +912,6 @@ export default function PlanPage() {
                               <User className="h-4 w-4 text-primary-foreground" />
                             </div>
                           )}
-=======
-                  {messages.map((msg, i) => (
-                    <div key={i} className="space-y-3">
-                      <div
-                        className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"
-                          }`}
-                      >
-                        {msg.role === "assistant" && (
-                          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
-                            <Sparkles className="h-4 w-4 text-white" />
-                          </div>
-                        )}
-                        <div
-                          className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                            }`}
-                        >
-                          <p className="whitespace-pre-wrap">{msg.content}</p>
->>>>>>> e1e81e4d78ff07d64c274c7aabb79dff70904d5c
                         </div>
 
                         {/* Show plan details */}
