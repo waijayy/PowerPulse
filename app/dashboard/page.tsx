@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertTriangle, TrendingUp, Activity, Zap } from "lucide-react"
+import { AlertTriangle, TrendingUp, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
 import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
@@ -81,7 +81,7 @@ export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<"week" | "month">("week")
   const [trendData, setTrendData] = useState<Array<{ label: string; usage: number; target: number }>>([])
   const [mlStats, setMlStats] = useState<UsageStatsResult | null>(null)
-  const [phantomHours, setPhantomHours] = useState(0)
+
   const [isClient, setIsClient] = useState(false)
 
   useEffect(() => {
@@ -115,9 +115,7 @@ export default function DashboardPage() {
       try {
         const stats = await getUsageStats()
         setMlStats(stats)
-        if (stats.summary) {
-          setPhantomHours(stats.summary.total_phantom_hours || 0)
-        }
+
         setTrendData(generateWeeklyDataFromStats(stats))
       } catch (err) {
         console.error("ML service not available, using fallback data")
@@ -241,39 +239,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-2 border-yellow-500/20">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-medium">Phantom Load Sources</CardTitle>
-                <Zap className="h-5 w-5 text-yellow-500" />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {mlStats?.appliances ? (
-                <>
-                  <div className="space-y-2">
-                    {Object.entries(mlStats.appliances)
-                      .filter(([_, data]: [string, any]) => data.wasted_kwh > 0.1)
-                      .sort((a: any, b: any) => b[1].wasted_kwh - a[1].wasted_kwh)
-                      .slice(0, 3)
-                      .map(([name, data]: [string, any]) => (
-                        <div key={name} className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">{name}</span>
-                          <Badge variant="outline" className="text-yellow-600 bg-yellow-500/10">
-                            {data.wasted_kwh.toFixed(2)} kWh wasted
-                          </Badge>
-                        </div>
-                      ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground pt-2 border-t">
-                    Appliances wasting energy in standby mode
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">Loading ML data...</p>
-              )}
-            </CardContent>
-          </Card>
+
         </div>
 
         <LiveUsageChart data={usageData} />
