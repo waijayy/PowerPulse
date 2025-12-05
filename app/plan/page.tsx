@@ -599,9 +599,36 @@ export default function PlanPage() {
             <Button
               size="lg"
               className="mt-2 px-8"
-              onClick={() => setShowPlanner(true)}
-              disabled={appliances.length === 0}
+              onClick={async () => {
+                if (appliances.length === 0) return;
+                setIsLoading(true);
+                try {
+                  const res = await fetch("/api/plan", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      message: "", // Empty message to generate fresh plan
+                      targetBill: targetBill,
+                    }),
+                  });
+                  const data = await res.json();
+                  if (data.error) {
+                    console.error("Failed to generate plan:", data.error);
+                  } else {
+                    setGeneratedPlan(data);
+                    setShowPlanner(true);
+                  }
+                } catch (err) {
+                  console.error("Error generating plan:", err);
+                } finally {
+                  setIsLoading(false);
+                }
+              }}
+              disabled={appliances.length === 0 || isLoading}
             >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
               {hasGeneratedPlan
                 ? "Generate New Plan"
                 : "Generate Personalized Plan"}
