@@ -1,14 +1,20 @@
 # PowerPulse ⚡
 
-PowerPulse is an AI-powered energy management dashboard designed to help households monitor, analyze, and optimize their electricity usage. Built for the modern energy-conscious user, it provides real-time insights, budget tracking, and personalized recommendations to reduce energy waste and save money.
+PowerPulse is an AI-powered energy management dashboard designed to help Malaysian households monitor, analyze, and optimize their electricity usage. Built for the modern energy-conscious user, it combines real-time insights, AI detection, and personalized AI recommendations to reduce energy waste and save money on TNB bills.
 
 ## 🚀 Features
 
-- **Budget Tracking**: Set monthly budget targets and track your progress to avoid bill shock.
-- **Appliance Management**: detailed breakdown of appliance usage, including peak and off-peak hour analysis.
-- **Smart Insights**: AI-driven recommendations for optimal appliance scheduling based on rates and grid health.
-- **Bill Management**: Track your historical bills and usage data in one place.
-- **Responsive Design**: Fully responsive UI that works seamlessly on desktop and mobile devices.
+-   **AI Energy Planner**: Powered by **Llama 3.3 70B**, this feature generates personalized appliance schedules optimized for Time-of-Use (ToU) rates (Peak vs. Off-Peak) to maximize savings without compromising comfort.
+-   **Smart Insights**:
+    -   **Phantom Load Detection**: Uses ML algorithms to analyze meter readings and detect standby power waste.
+    -   **Efficiency Scoring**: Rates your appliances against efficient standards to identify energy hogs.
+-   **Interactive Stimulator**:
+    -   **Appliance Simulator**: Simulate different usage patterns to see potential cost impacts.
+    -   **Solar Potential Simulator**: Estimate ROI and savings for solar panel installation based on your location (e.g., Selangor, Penang) and usage.
+-   **Intelligent Chatbot**: A context-aware AI assistant that knows your specific appliances and usage patterns, ready to answer questions and provide tailored energy-saving advice.
+-   **Bill & Budget Tracking**: Set monthly targets and track progress with advanced algorithms that estimate usage hours for each appliance to prevent bill shock.
+-   **Appliance Management**: Detailed breakdown of appliance usage, including peak and off-peak hour analysis.
+-   **Responsive Design**: Fully responsive UI that works seamlessly on desktop and mobile devices.
 
 ## 🛠️ Tech Stack
 
@@ -18,7 +24,8 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
 - **Database**: [Supabase](https://supabase.com/) (PostgreSQL)
 - **Authentication**: Supabase Auth
 - **AI Integration**: [Groq SDK](https://console.groq.com/) (Llama 3.3 70B)
-- **Phantom API**: [Flask](https://flask.palletsprojects.com/) (Python)
+- **ML Service**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
+- **ML Libraries**: TensorFlow, Scikit-learn, Pandas, NumPy
 - **Charts**: [Recharts](https://recharts.org/)
 - **UI Components**: [Shadcn UI](https://ui.shadcn.com/)
 - **Icons**: [Lucide React](https://lucide.dev/)
@@ -29,6 +36,7 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
 
 - Node.js 18+ installed
 - A Supabase account and project
+- Python installed
 
 ### Installation
 
@@ -49,10 +57,8 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
     NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
     NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
     GROQ_API_KEY=your_groq_api_key
-    PHANTOM_API_URL=http://localhost:5000
+
     ```
-    
-    **Note**: `PHANTOM_API_URL` is optional and defaults to `http://localhost:5000`. If your phantom detection API is running on a different URL, update this value.
 
 4.  **Database Setup**
     Run the SQL scripts provided in `database_setup.sql` in your Supabase SQL Editor to set up the necessary tables (profiles, appliances, planning) and security policies.
@@ -63,12 +69,12 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
     - Creating the `planning` table for AI-generated energy plans
     - Setting up Row Level Security (RLS) policies
 
-5.  **Set up Phantom Load Detection (Optional)**
-    To enable phantom load detection in the Insights page:
+5.  **Set up ML Service**
+    To enable phantom load detection and energy forecasting:
     
-    a. Navigate to the `phantom-api` directory:
+    a. Navigate to the `ml-service` directory:
        ```bash
-       cd phantom-api
+       cd ml-service
        ```
     
     b. Install Python dependencies:
@@ -76,18 +82,27 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
        pip install -r requirements.txt
        ```
     
-    c. Train and save the model (if not already done):
-       ```bash
-       python setup_model.py
-       ```
+    c. **Train the Models**:
+       You need to run the training scripts to generate the necessary model files and appliance profiles.
+       
+       1. Generate appliance profiles (K-Means Clustering):
+          ```bash
+          python logic_training.py
+          ```
+          This creates `appliance_profiles.json`.
+          
+       2. Train forecasting models (LSTM):
+          ```bash
+          python train_models.py
+          ```
+          This creates the model files in the `models/` directory.
     
-    d. Start the Flask API server:
+    d. Start the FastAPI server:
        ```bash
-       python flask_api.py
+       python -m uvicorn main:app --reload --port 8000
        ```
-       The API will run on `http://localhost:5000` by default.
+       The API will run on `http://localhost:8000` (default for FastAPI) or the port specified.
     
-    **Note**: The Insights page will work without the phantom API, but will show default values. The API is used to analyze power consumption patterns and detect phantom loads.
 
 6.  **Set up AI Features (Groq)**
     To enable the AI-powered energy planner:
@@ -103,13 +118,4 @@ PowerPulse is an AI-powered energy management dashboard designed to help househo
     npm run dev
     ```
     Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-## 📱 Usage
-
-1.  **Sign Up/Login**: Create an account to start tracking your energy.
-2.  **Setup Profile**: Enter your current bill details and register your appliances.
-3.  **Dashboard**: View your usage trends and budget status.
-4.  **Profile**: Update your budget target, bill details, and manage appliances.
-5.  **Audit**: Get a detailed breakdown of appliance costs and potential savings.
-6.  **Insights**: View personalized recommendations and energy waste analysis.
 

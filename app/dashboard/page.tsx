@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { AppShell } from "@/components/app-shell"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -78,6 +79,7 @@ export default function DashboardPage() {
 
   const [isClient, setIsClient] = useState(false)
   const [isLoadingPredictions, setIsLoadingPredictions] = useState(true)
+  const [isWeekend, setIsWeekend] = useState(false)
 
   useEffect(() => {
     setIsClient(true)
@@ -184,8 +186,13 @@ export default function DashboardPage() {
       const plannedPeakWeekday = planItem?.planned_peak_hours_weekday ?? appliance.peak_usage_hours;
       const plannedOffPeakWeekday = planItem?.planned_off_peak_hours_weekday ?? appliance.off_peak_usage_hours;
 
+      // Weekend: all hours are off-peak, so use weekend hours or combine weekday hours as fallback
+      const plannedWeekendTotal = planItem?.planned_offpeak_hours_weekend ??
+        (planItem?.planned_peak_hours_weekend ?? 0) + (planItem?.planned_offpeak_hours_weekend ?? (plannedPeakWeekday + plannedOffPeakWeekday));
+
       let simulatedPeakUsage: number;
       let simulatedOffPeakUsage: number;
+      let simulatedWeekendUsage: number;
 
       // Peak usage simulation
       if (plannedPeakWeekday === 0) {
@@ -221,15 +228,35 @@ export default function DashboardPage() {
         simulatedOffPeakUsage = plannedOffPeakWeekday * 0.58;
       }
 
+      // Weekend usage simulation (all off-peak rate)
+      if (plannedWeekendTotal === 0) {
+        simulatedWeekendUsage = 0;
+      } else if (applianceName.includes('air conditioner') || applianceName.includes('ac')) {
+        simulatedWeekendUsage = plannedWeekendTotal * 0.55;
+      } else if (applianceName.includes('computer') || applianceName.includes('pc')) {
+        simulatedWeekendUsage = plannedWeekendTotal * 0.65;
+      } else if (applianceName.includes('tv') || applianceName.includes('television')) {
+        simulatedWeekendUsage = plannedWeekendTotal * 0.70;
+      } else if (applianceName.includes('washing machine')) {
+        simulatedWeekendUsage = plannedWeekendTotal * 0.55;
+      } else if (applianceName.includes('refrigerator')) {
+        simulatedWeekendUsage = plannedWeekendTotal * 0.55;
+      } else {
+        simulatedWeekendUsage = plannedWeekendTotal * 0.58;
+      }
+
       return {
         applianceId: appliance.id,
         plannedPeakWeekday,
         plannedOffPeakWeekday,
+        plannedWeekendTotal,
         simulatedPeakUsage,
         simulatedOffPeakUsage,
+        simulatedWeekendUsage,
       };
     });
   }, [appliances, generatedPlan]);
+
 
   const gridConfig = {
     healthy: {
@@ -335,25 +362,37 @@ export default function DashboardPage() {
 
         </div>
 
-        <LiveUsageChart data={usageData} />
-
-        <UsageTrendChart
-          data={trendData}
-          budgetTarget={budgetTarget}
-          isLoading={isLoadingPredictions}
-        />
-
         {/* Real Time Tracker */}
         {appliances.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Real Time Tracker</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Real Time Tracker</CardTitle>
+                <div className="flex rounded-lg border overflow-hidden">
+                  <Button
+                    variant={isWeekend ? "ghost" : "default"}
+                    size="sm"
+                    onClick={() => setIsWeekend(false)}
+                    className="rounded-none"
+                  >
+                    Weekday
+                  </Button>
+                  <Button
+                    variant={isWeekend ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setIsWeekend(true)}
+                    className="rounded-none"
+                  >
+                    Weekend
+                  </Button>
+                </div>
+              </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Track your daily usage against your personalized plan (Weekday)
+                Track your daily usage against your personalized plan ({isWeekend ? "Weekend" : "Weekday"})
               </p>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {appliances.map((appliance, index) => {
                   const Icon = getApplianceIcon(appliance.name);
 
@@ -361,12 +400,15 @@ export default function DashboardPage() {
                   const simData = simulatedUsageData.find(d => d.applianceId === appliance.id);
                   const plannedPeakWeekday = simData?.plannedPeakWeekday ?? appliance.peak_usage_hours;
                   const plannedOffPeakWeekday = simData?.plannedOffPeakWeekday ?? appliance.off_peak_usage_hours;
+                  const plannedWeekendTotal = simData?.plannedWeekendTotal ?? (plannedPeakWeekday + plannedOffPeakWeekday);
                   const simulatedPeakUsage = simData?.simulatedPeakUsage ?? 0;
                   const simulatedOffPeakUsage = simData?.simulatedOffPeakUsage ?? 0;
+                  const simulatedWeekendUsage = simData?.simulatedWeekendUsage ?? 0;
 
                   // Calculate percentages
                   const peakPercent = plannedPeakWeekday > 0 ? (simulatedPeakUsage / plannedPeakWeekday) * 100 : 0;
                   const offPeakPercent = plannedOffPeakWeekday > 0 ? (simulatedOffPeakUsage / plannedOffPeakWeekday) * 100 : 0;
+                  const weekendPercent = plannedWeekendTotal > 0 ? (simulatedWeekendUsage / plannedWeekendTotal) * 100 : 0;
 
                   // Determine progress bar colors based on percentage
                   const getBarColor = (percent: number) => {
@@ -376,55 +418,84 @@ export default function DashboardPage() {
                   };
 
                   return (
-                    <Card key={appliance.id} className="border-2">
-                      <CardContent className="p-4">
-                        {/* Appliance Name */}
-                        <div className="flex items-center gap-2 mb-4">
-                          <div className="p-2 rounded-lg bg-primary/10">
-                            <Icon className="h-4 w-4 text-primary" />
-                          </div>
-                          <span className="font-medium text-sm">{appliance.name}</span>
+                    <div key={appliance.id} className="space-y-4">
+                      {/* Appliance Name */}
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700">
+                          <Icon className="h-5 w-5 text-primary" />
                         </div>
+                        <span className="font-semibold text-base">{appliance.name}</span>
+                      </div>
 
-                        {/* Peak Hour Progress */}
-                        <div className="space-y-2 mb-3">
+                      {isWeekend ? (
+                        /* Weekend: Total Hours Only */
+                        <div className="space-y-1">
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-muted-foreground">Peak hour</span>
-                            <span className="text-xs font-medium">
-                              {simulatedPeakUsage.toFixed(1)}h/{plannedPeakWeekday.toFixed(1)}h
+                            <span className="text-sm text-muted-foreground">Total hours</span>
+                            <span className="text-sm font-medium">
+                              {simulatedWeekendUsage.toFixed(1)}h/{plannedWeekendTotal.toFixed(1)}h
                             </span>
                           </div>
-                          <div className="h-6 bg-gray-200 rounded-full overflow-hidden">
+                          <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
                             <div
-                              className={`h-full transition-all duration-300 ${getBarColor(peakPercent)}`}
-                              style={{ width: `${Math.min(peakPercent, 100)}%` }}
+                              className={`h-full transition-all duration-300 ${getBarColor(weekendPercent)}`}
+                              style={{ width: `${Math.min(weekendPercent, 100)}%` }}
                             />
                           </div>
                         </div>
+                      ) : (
+                        /* Weekday: Peak & Off-Peak Hours */
+                        <>
+                          {/* Peak Hour Progress */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-muted-foreground">Peak hour</span>
+                              <span className="text-sm font-medium">
+                                {simulatedPeakUsage.toFixed(1)}h/{plannedPeakWeekday.toFixed(1)}h
+                              </span>
+                            </div>
+                            <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-300 ${getBarColor(peakPercent)}`}
+                                style={{ width: `${Math.min(peakPercent, 100)}%` }}
+                              />
+                            </div>
+                          </div>
 
-                        {/* Off-Peak Hour Progress */}
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-muted-foreground">Off-peak hour</span>
-                            <span className="text-xs font-medium">
-                              {simulatedOffPeakUsage.toFixed(1)}h/{plannedOffPeakWeekday.toFixed(1)}h
-                            </span>
+                          {/* Off-Peak Hour Progress */}
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-muted-foreground">Off-peak hour</span>
+                              <span className="text-sm font-medium">
+                                {simulatedOffPeakUsage.toFixed(1)}h/{plannedOffPeakWeekday.toFixed(1)}h
+                              </span>
+                            </div>
+                            <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-300 ${getBarColor(offPeakPercent)}`}
+                                style={{ width: `${Math.min(offPeakPercent, 100)}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="h-6 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full transition-all duration-300 ${getBarColor(offPeakPercent)}`}
-                              style={{ width: `${Math.min(offPeakPercent, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                        </>
+                      )}
+                    </div>
                   );
                 })}
               </div>
             </CardContent>
           </Card>
         )}
+
+        <LiveUsageChart data={usageData} />
+
+        <UsageTrendChart
+          data={trendData}
+          budgetTarget={budgetTarget}
+          isLoading={isLoadingPredictions}
+        />
+
+
       </div>
     </AppShell>
   )
