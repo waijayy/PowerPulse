@@ -146,7 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 min-h-[calc(100vh-4rem)]" style={{ backgroundColor: '#eff6ef' }}>{children}</main>
     </div>
   )
 }
