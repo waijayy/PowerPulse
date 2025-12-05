@@ -84,6 +84,11 @@ export default function AuditPage() {
   }
 
   const updateUsage = (id: string, field: "dailyHours" | "offPeakHours", value: number) => {
+    // Validate value is between 0 and 24
+    if (value < 0 || value > 24) {
+      alert("Please enter a value between 0 and 24 hours")
+      return
+    }
     setUsageData({
       ...usageData,
       [id]: {
