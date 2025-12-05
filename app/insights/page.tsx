@@ -66,10 +66,7 @@ export default function InsightsPage() {
   const [usageStats, setUsageStats] = useState<UsageStatsResult | null>(null)
   const [userAppliances, setUserAppliances] = useState<Array<{ type: string; rated_watts: number }>>([])
   const [totalMonthlyKwh, setTotalMonthlyKwh] = useState<number>(300) // Default fallback
-  const [wasteData, setWasteData] = useState([
-    { name: "Active Usage", value: 80, color: "rgb(37 99 235)" },
-    { name: "Phantom Load", value: 20, color: "rgb(234 179 8)" },
-  ])
+  const [wasteData, setWasteData] = useState<Array<{ name: string; value: number; color: string }>>([])
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -97,18 +94,9 @@ export default function InsightsPage() {
       try {
         const stats = await getUsageStats()
         setUsageStats(stats)
-        if (stats.summary) {
-          const activePercent = stats.summary.active_usage_percent || 80
-          const phantomPercent = stats.summary.phantom_usage_percent || 20
-          // Ensure they add up to 100%
-          const adjustedActivePercent = Math.min(100, Math.max(0, 100 - phantomPercent))
-          setWasteData([
-            { name: "Active Usage", value: adjustedActivePercent, color: "rgb(37 99 235)" },
-            { name: "Phantom Load", value: phantomPercent, color: "rgb(234 179 8)" },
-          ])
-        }
+        // Don't set default wasteData - only show chart after phantom load detection
       } catch (err) {
-        console.error("ML service not available, using default data")
+        console.error("ML service not available")
       }
     }
 
@@ -138,22 +126,19 @@ export default function InsightsPage() {
   }, [])
 
   const updateWasteChart = (detectedPhantomWatts: number) => {
-    // Calculate monthly phantom load in kWh
-    // Phantom load runs 24/7, so: watts * 24 hours * 30 days / 1000 = kWh
-    const monthlyPhantomKwh = (detectedPhantomWatts * 24 * 30) / 1000
-    
-    // Calculate phantom load as percentage of total monthly usage
-    const phantomPercent = totalMonthlyKwh > 0 
-      ? Math.min(100, (monthlyPhantomKwh / totalMonthlyKwh) * 100)
+    // Calculate phantom load as percentage of meter reading
+    const meterReadingWatts = meterReading[0]
+    const phantomPercent = meterReadingWatts > 0 
+      ? Math.min(100, (detectedPhantomWatts / meterReadingWatts) * 100)
       : 0
     
     // Calculate active usage as the remainder to maintain 100% total
     const activePercent = Math.max(0, 100 - phantomPercent)
     
-    // Update the chart data
+    // Update the chart data (keep decimals, don't round)
     setWasteData([
-      { name: "Active Usage", value: Math.round(activePercent * 10) / 10, color: "rgb(37 99 235)" },
-      { name: "Phantom Load", value: Math.round(phantomPercent * 10) / 10, color: "rgb(234 179 8)" },
+      { name: "Active Usage", value: activePercent, color: "rgb(37 99 235)" },
+      { name: "Phantom Load", value: phantomPercent, color: "rgb(234 179 8)" },
     ])
   }
 
@@ -192,8 +177,7 @@ export default function InsightsPage() {
     <AppShell>
       <div className="container max-w-6xl mx-auto px-4 py-6 md:py-8 space-y-6">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Energy Insights & Plan</h1>
-          <p className="text-muted-foreground">Track your progress and optimize your energy usage schedule</p>
+          <h1 className="text-3xl font-bold tracking-tight mb-2">Energy Insights</h1>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
@@ -287,36 +271,44 @@ export default function InsightsPage() {
               <CardDescription>Where your energy is going (based on REFIT data)</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={wasteData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {wasteData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mt-4">
-                {wasteData.map((item, index) => (
-                  <div key={index} className="flex flex-col items-center text-center">
-                    <div className="w-3 h-3 rounded-full mb-1" style={{ backgroundColor: item.color }} />
-                    <p className="text-xs font-medium">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">{item.value.toFixed(1)}%</p>
+              {wasteData.length > 0 ? (
+                <>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={wasteData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ percent }) => `${((percent ?? 0) * 100).toFixed(2)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {wasteData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
                   </div>
-                ))}
-              </div>
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    {wasteData.map((item, index) => (
+                      <div key={index} className="flex flex-col items-center text-center">
+                        <div className="w-3 h-3 rounded-full mb-1" style={{ backgroundColor: item.color }} />
+                        <p className="text-xs font-medium">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">{item.value.toFixed(2)}%</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-muted-foreground">
+                  <p className="text-sm">Detect phantom load to see energy waste analysis</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
