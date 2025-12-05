@@ -22,40 +22,8 @@ import {
 import { cn } from "@/lib/utils"
 import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
 import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
-import { getUsageStats, type UsageStatsResult } from "@/lib/ml-api"
-
-type ApplianceData = {
-  id: number;
-  name: string;
-  quantity: number;
-  watt: number;
-  peak_usage_hours: number;
-  off_peak_usage_hours: number;
-  monthly_cost: number;
-};
-
-type PlanItem = {
-  name: string;
-  current_hours: string;
-  planned_hours: string;
-  planned_peak_hours?: number;
-  planned_off_peak_hours?: number;
-  planned_peak_hours_weekday?: number;
-  planned_off_peak_hours_weekday?: number;
-  planned_peak_hours_weekend?: number;
-  planned_offpeak_hours_weekend?: number;
-  suggested_time_weekday?: string;
-  suggested_time_weekend?: string;
-  monthly_savings: number;
-  change: string;
-};
-
-type Plan = {
-  plan: PlanItem[];
-  projected_bill: number;
-  total_savings: number;
-  explanation: string;
-};
+import { createClient } from "@/utils/supabase/client"
+import { getUsageStats, predictWeekFromRealData, type UsageStatsResult, type ApplianceData, type Plan, type PlanItem } from "@/lib/ml-api"
 
 const applianceIcons: Record<string, React.ElementType> = {
   "Air Conditioner": AirVent,
@@ -91,45 +59,6 @@ const generateUsageData = () => {
   return data
 }
 
-const generateWeeklyDataFromStats = (stats: UsageStatsResult | null) => {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-  if (!stats || !stats.appliances) {
-    return days.map((day) => ({
-      label: day,
-      usage: Math.random() * 6 + 16,
-      target: 20,
-    }))
-  }
-
-  const totalActiveHours = stats.summary?.total_active_hours || 100
-  const avgDailyUsage = totalActiveHours / 7
-
-  return days.map((day, index) => ({
-    label: day,
-    usage: avgDailyUsage * (0.8 + Math.random() * 0.4),
-    target: 20,
-  }))
-}
-
-const generateMonthlyDataFromStats = (stats: UsageStatsResult | null) => {
-  const data = []
-  const now = new Date()
-
-  const baseUsage = stats?.summary?.total_active_hours
-    ? stats.summary.total_active_hours / 30
-    : 18
-
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
-    data.push({
-      label: `${date.getMonth() + 1}/${date.getDate()}`,
-      usage: baseUsage * (0.7 + Math.random() * 0.6),
-      target: 20,
-    })
-  }
-  return data
-}
-
 type GridStatus = "healthy" | "warning" | "critical"
 
 const getGridStatus = (): GridStatus => {
@@ -141,14 +70,14 @@ export default function DashboardPage() {
   const [usageData, setUsageData] = useState<Array<{ time: string; usage: number; limit: number }>>([])
   const [gridStatus, setGridStatus] = useState<GridStatus>("healthy")
   const [currentUsage, setCurrentUsage] = useState(85)
-  const [budgetTarget, setBudgetTarget] = useState(200)
-  const [viewMode, setViewMode] = useState<"week" | "month">("week")
-  const [trendData, setTrendData] = useState<Array<{ label: string; usage: number; target: number }>>([])
+  const [budgetTarget, setBudgetTarget] = useState(150)
+  const [trendData, setTrendData] = useState<Array<{ label: string; predicted: number }>>([])
   const [mlStats, setMlStats] = useState<UsageStatsResult | null>(null)
   const [appliances, setAppliances] = useState<ApplianceData[]>([])
   const [generatedPlan, setGeneratedPlan] = useState<Plan | null>(null)
 
   const [isClient, setIsClient] = useState(false)
+  const [isLoadingPredictions, setIsLoadingPredictions] = useState(true)
 
   useEffect(() => {
     setIsClient(true)
@@ -190,25 +119,52 @@ export default function DashboardPage() {
       try {
         const stats = await getUsageStats()
         setMlStats(stats)
-
-        setTrendData(generateWeeklyDataFromStats(stats))
       } catch (err) {
-        console.error("ML service not available, using fallback data")
-        setTrendData(generateWeeklyDataFromStats(null))
+        // ML service is optional - silently fail if not available
+        // The dashboard will work without ML stats
+        console.debug("ML service not available - continuing without ML stats")
       }
     }
+
+    async function loadPredictions() {
+      setIsLoadingPredictions(true)
+      try {
+        // Use REAL data from House_4 dataset
+        const prediction = await predictWeekFromRealData()
+
+        if (prediction.success && prediction.predictions) {
+          const predictionData = prediction.predictions.map(p => ({
+            label: p.day,
+            predicted: p.predicted_kwh
+          }))
+
+          setTrendData(predictionData)
+          console.log("Real data prediction loaded:", {
+            source: prediction.data_source,
+            inputStats: prediction.input_stats,
+            totalWeek: prediction.total_week_kwh
+          })
+        }
+      } catch (err) {
+        console.error("Forecast API not available:", err)
+        // Set fallback prediction data
+        const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        setTrendData(days.map(day => ({
+          label: day,
+          predicted: 16 + Math.random() * 8
+        })))
+      } finally {
+        setIsLoadingPredictions(false)
+      }
+    }
+
     loadMLStats()
+    loadPredictions()
 
     return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    if (viewMode === "week") {
-      setTrendData(generateWeeklyDataFromStats(mlStats))
-    } else {
-      setTrendData(generateMonthlyDataFromStats(mlStats))
-    }
-  }, [viewMode, mlStats])
+
 
   const budgetProgress = (currentUsage / budgetTarget) * 100
   const isNearLimit = budgetProgress > 75
@@ -220,7 +176,7 @@ export default function DashboardPage() {
 
       // Find planned hours from generated plan (if exists)
       const planItem = generatedPlan?.plan?.find(
-        (p) =>
+        (p: { name: string }) =>
           p.name.toLowerCase().includes(appliance.name.toLowerCase()) ||
           appliance.name.toLowerCase().includes(p.name.toLowerCase())
       );
@@ -383,9 +339,8 @@ export default function DashboardPage() {
 
         <UsageTrendChart
           data={trendData}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
           budgetTarget={budgetTarget}
+          isLoading={isLoadingPredictions}
         />
 
         {/* Real Time Tracker */}

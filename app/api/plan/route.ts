@@ -122,9 +122,8 @@ export async function POST(req: Request) {
       const systemPrompt = `You are an energy planning assistant for PowerPulse.
       
       BILLING CONTEXT:
-      - Previous Month Bill: $${lastMonthBill}
+      - Current Month Bill: $${lastMonthBill}
       - Target Next Month Bill: $${effectiveTargetBill}
-      - Required Savings: $${lastMonthBill - effectiveTargetBill}
       
       CURRENT PERSONALIZED PLAN (Your baseline to adjust):
       ${JSON.stringify(enhancedPlanContext, null, 2)}
@@ -158,8 +157,9 @@ export async function POST(req: Request) {
       - Weekend: all off-peak (0-24h)
       
       BUDGET GOAL:
-      - The projected_bill should be close to the current bill.
-      - It is acceptable if it increases slightly, but it MUST NOT exceed the Target Bill ($${effectiveTargetBill}) significantly.
+      - The projected_bill should be AS CLOSE AS POSSIBLE to the Target Bill ($${effectiveTargetBill})
+      - The projected_bill MUST NOT EXCEED the Target Bill ($${effectiveTargetBill})
+      - Try to get as close as possible without going over (ideally within $5 of the target)
       
       CALCULATIONS:
       - Monthly savings = (last_month_peak - new_peak) × watt × 0.57 × 30 / 1000
@@ -324,6 +324,8 @@ export async function POST(req: Request) {
       }
     }
 
+    // Auto-save removed. Plan is now returned to frontend for manual saving.
+    /* 
     // Save to planning table
     const { error: planError } = await supabase
       .from('planning')
@@ -343,6 +345,7 @@ export async function POST(req: Request) {
         expected_monthly_cost: planData.projected_bill
       })
       .eq('id', user.id)
+    */
 
     return NextResponse.json({
       ...planData,
