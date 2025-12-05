@@ -8,43 +8,13 @@ import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Label } from "@/components/ui/label"
-import { TrendingUp, TrendingDown, Zap, Clock, Battery, AlertCircle, Search, Loader2 } from "lucide-react"
+import { Zap, Search, Loader2 } from "lucide-react"
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { cn } from "@/lib/utils"
 import { predictPhantomLoad, getUsageStats, type PhantomDetectionResult, type UsageStatsResult } from "@/lib/ml-api"
 import { getAppliances } from "../appliances/actions"
 import { createClient } from "@/utils/supabase/client"
-
-const scheduleItems = [
-  {
-    time: "02:00 AM",
-    appliance: "Electric Vehicle",
-    icon: Battery,
-    reason: "Lowest rates + Clean energy",
-    status: "optimal",
-  },
-  {
-    time: "10:30 PM",
-    appliance: "Washing Machine",
-    icon: Zap,
-    reason: "Off-peak rates begin",
-    status: "optimal",
-  },
-  {
-    time: "11:00 AM - 2:00 PM",
-    appliance: "Pool Pump",
-    icon: Zap,
-    reason: "Solar peak hours",
-    status: "good",
-  },
-  {
-    time: "Avoid 8:00 PM",
-    appliance: "High-Power Appliances",
-    icon: AlertCircle,
-    reason: "Peak demand period",
-    status: "warning",
-  },
-]
+import { ApplianceEfficientMax } from "@/constants/efficiency_threshold"
 
 const APPLIANCE_TYPE_MAP: Record<string, string> = {
   "Air Conditioner": "Air Conditioner",
@@ -315,56 +285,81 @@ export default function InsightsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Optimized Daily Schedule</CardTitle>
-            <CardDescription>Recommended times to run appliances based on grid health and rates</CardDescription>
+            <CardTitle>Electric Appliance Efficiency</CardTitle>
+            <CardDescription>Efficiency score based on your appliance wattage compared to efficient standards</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {scheduleItems.map((item, index) => {
-                const Icon = item.icon
+            <div className="space-y-4">
+              {userAppliances.map((app, index) => {
+                // Map appliance names to efficiency constants keys
+                let efficiencyKey: keyof typeof ApplianceEfficientMax | undefined;
+                
+                // Simple mapping based on string inclusion or exact match
+                const nameLower = app.type.toLowerCase();
+                if (nameLower.includes("air conditioner")) efficiencyKey = "air_conditioner";
+                else if (nameLower.includes("fridge") || nameLower.includes("refrigerator")) efficiencyKey = "refrigerator";
+                else if (nameLower.includes("washing machine")) efficiencyKey = "washing_machine";
+                else if (nameLower.includes("television") || nameLower.includes("tv")) efficiencyKey = "television";
+                else if (nameLower.includes("computer") || nameLower.includes("pc") || nameLower.includes("desktop")) efficiencyKey = "desktop_pc";
+                else if (nameLower.includes("led light") || nameLower.includes("bulb")) efficiencyKey = "led_light";
+                else if (nameLower.includes("fan")) efficiencyKey = "ceiling_fan";
+                else if (nameLower.includes("charger")) efficiencyKey = "phone_charger";
+
+                if (!efficiencyKey) return null;
+
+                const efficientMax = ApplianceEfficientMax[efficiencyKey];
+                // Formula:
+                // If userWattage <= efficientMax -> 100
+                // If userWattage > efficientMax -> (efficientMax / userWattage) * 100
+                
+                let score = 0;
+                if (app.rated_watts <= efficientMax) {
+                  score = 100;
+                } else {
+                  score = Math.max(0, (efficientMax / app.rated_watts) * 100);
+                }
+                
+                let colorClass = "text-green-500";
+                let progressClass = "[&>div]:bg-green-500";
+                let statusText = "Excellent";
+
+                if (score < 50) {
+                  colorClass = "text-red-500";
+                  progressClass = "[&>div]:bg-red-500";
+                  statusText = "Inefficient";
+                } else if (score < 75) {
+                  colorClass = "text-yellow-500";
+                  progressClass = "[&>div]:bg-yellow-500";
+                  statusText = "Fair";
+                }
+
                 return (
-                  <div
-                    key={index}
-                    className={cn(
-                      "flex items-center gap-4 p-4 rounded-lg border-2 transition-colors",
-                      item.status === "optimal" && "border-chart-1/20 bg-chart-1/5",
-                      item.status === "good" && "border-chart-2/20 bg-chart-2/5",
-                      item.status === "warning" && "border-chart-3/20 bg-chart-3/5",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "flex h-12 w-12 items-center justify-center rounded-lg shrink-0",
-                        item.status === "optimal" && "bg-chart-1/20 text-chart-1",
-                        item.status === "good" && "bg-chart-2/20 text-chart-2",
-                        item.status === "warning" && "bg-chart-3/20 text-chart-3",
-                      )}
-                    >
-                      <Icon className="h-6 w-6" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-semibold">{item.appliance}</p>
-                        {item.status === "optimal" && (
-                          <Badge variant="outline" className="bg-chart-1/10 text-chart-1 border-chart-1/20">
-                            Optimal
-                          </Badge>
-                        )}
-                        {item.status === "warning" && (
-                          <Badge variant="outline" className="bg-chart-3/10 text-chart-3 border-chart-3/20">
-                            Avoid
-                          </Badge>
-                        )}
+                  <div key={index} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap className={cn("h-4 w-4", colorClass)} />
+                        <span className="font-medium">{app.type}</span>
                       </div>
-                      <p className="text-sm text-muted-foreground">{item.reason}</p>
+                      <div className="flex items-center gap-2">
+                        <span className={cn("text-sm font-bold", colorClass)}>{score.toFixed(0)}/100</span>
+                        <Badge variant="outline" className={cn("text-xs", colorClass.replace("text-", "border-").replace("500", "200"), "bg-transparent")}>
+                          {statusText}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-sm font-medium shrink-0">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span>{item.time}</span>
+                    <Progress value={score} className={cn("h-2", progressClass)} />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Your: {app.rated_watts}W</span>
+                      <span>Efficient Goal: &lt;{efficientMax}W</span>
                     </div>
                   </div>
-                )
+                );
               })}
+              {userAppliances.length === 0 && (
+                 <p className="text-sm text-muted-foreground text-center py-4">
+                  No appliances found to analyze.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

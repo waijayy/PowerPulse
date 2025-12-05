@@ -18,13 +18,6 @@ import {
   Plus, 
   Trash2, 
   Save, 
-  Lightbulb, 
-  Tv, 
-  Fan, 
-  Refrigerator, 
-  WashingMachine, 
-  Monitor, 
-  Smartphone,
   Eye,
   EyeOff
 } from "lucide-react"
@@ -40,24 +33,7 @@ import {
 import { cn } from "@/lib/utils"
 import { completeSetup, updateProfile, updateBudget, updateProfileBill } from "./actions"
 import { getAppliances } from "../appliances/actions"
-
-type ApplianceType = {
-  id: string
-  name: string
-  icon: any
-  defaultWatt: number
-}
-
-const applianceTypes: ApplianceType[] = [
-  { id: "lights", name: "Lights (LED)", icon: Lightbulb, defaultWatt: 10 },
-  { id: "fan", name: "Ceiling Fan", icon: Fan, defaultWatt: 75 },
-  { id: "ac", name: "Air Conditioner", icon: Zap, defaultWatt: 1000 },
-  { id: "tv", name: "Television", icon: Tv, defaultWatt: 100 },
-  { id: "fridge", name: "Refrigerator", icon: Refrigerator, defaultWatt: 150 },
-  { id: "washer", name: "Washing Machine", icon: WashingMachine, defaultWatt: 500 },
-  { id: "pc", name: "Desktop PC", icon: Monitor, defaultWatt: 200 },
-  { id: "phone", name: "Phone Charger", icon: Smartphone, defaultWatt: 20 },
-]
+import { applianceTypes } from "@/constants/appliances"
 
 type Appliance = {
   id: string

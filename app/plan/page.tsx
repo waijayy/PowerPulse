@@ -496,9 +496,6 @@ export default function PlanPage() {
                   <p className="text-xs text-muted-foreground mt-1">
                     Previous billing period
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Database record: RM {lastMonthBill.toFixed(2)}
-                  </p>
                 </div>
               </div>
             </CardContent>
@@ -587,7 +584,7 @@ export default function PlanPage() {
                     RM {potentialSavings.toFixed(2)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Calculated: RM {lastMonthBill.toFixed(2)} - RM{" "}
+                    Calculated: RM {lastMonthBill.toFixed(2)} -{'>'} RM{" "}
                     {targetBill.toFixed(2)}
                   </p>
                 </div>

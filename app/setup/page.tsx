@@ -14,49 +14,18 @@ import { Switch } from "@/components/ui/switch"
 import { LoadingOverlay } from "@/components/loading-overlay"
 import { AlertDialog } from "@/components/alert-dialog"
 import {
-  AirVent,
-  Refrigerator,
-  WashingMachine,
-  Tv,
-  Monitor,
-  Lightbulb,
-  Microwave,
-  Fan,
   Zap,
-  Upload,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { addAppliance } from "../appliances/actions"
 import { completeSetup } from "../profile/actions"
 import { disaggregateEnergy } from "@/lib/ml-api"
+import { applianceTypes, ML_SERVICE_NAME_MAP } from "@/constants/appliances"
 
 type ApplianceData = {
   id: string
   count: number
   watt: number
-}
-
-const applianceTypes = [
-  { id: "ac", name: "Air Conditioner", icon: AirVent, defaultWatt: 2000 },
-  { id: "fridge", name: "Refrigerator", icon: Refrigerator, defaultWatt: 150 },
-  { id: "washer", name: "Washing Machine", icon: WashingMachine, defaultWatt: 500 },
-  { id: "tv", name: "Television", icon: Tv, defaultWatt: 100 },
-  { id: "pc", name: "Computer/PC", icon: Monitor, defaultWatt: 200 },
-  { id: "lights", name: "LED Lights", icon: Lightbulb, defaultWatt: 10 },
-  { id: "microwave", name: "Microwave", icon: Microwave, defaultWatt: 1000 },
-  { id: "fan", name: "Ceiling Fan", icon: Fan, defaultWatt: 75 },
-]
-
-// Map frontend appliance names to ML service names
-const ML_SERVICE_NAME_MAP: Record<string, string> = {
-  "Refrigerator": "Fridge",
-  "Air Conditioner": "Air Conditioner",
-  "Washing Machine": "Washing Machine",
-  "Television": "Television",
-  "Computer/PC": "Computer/PC",
-  "LED Lights": "LED Lights", // May not be in ML service, but will use fallback
-  "Microwave": "Microwave",
-  "Ceiling Fan": "Ceiling Fan",
 }
 
 export default function SetupPage() {
