@@ -77,11 +77,10 @@ export default function DashboardPage() {
       try {
         const stats = await getUsageStats()
         setMlStats(stats)
-        if (stats.summary) {
-          setPhantomHours(stats.summary.total_phantom_hours || 0)
-        }
       } catch (err) {
-        console.error("ML service not available")
+        // ML service is optional - silently fail if not available
+        // The dashboard will work without ML stats
+        console.debug("ML service not available - continuing without ML stats")
       }
     }
 
