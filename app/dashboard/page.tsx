@@ -394,30 +394,36 @@ export default function DashboardPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Real Time Tracker</CardTitle>
-                <div className="flex rounded-lg border overflow-hidden">
-                  <Button
-                    variant={isWeekend ? "ghost" : "default"}
-                    size="sm"
-                    onClick={() => setIsWeekend(false)}
-                    className="rounded-none"
-                  >
-                    Weekday
-                  </Button>
-                  <Button
-                    variant={isWeekend ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setIsWeekend(true)}
-                    className="rounded-none"
-                  >
-                    Weekend
-                  </Button>
-                </div>
+                {generatedPlan && (
+                  <div className="flex rounded-lg border overflow-hidden">
+                    <Button
+                      variant={isWeekend ? "ghost" : "default"}
+                      size="sm"
+                      onClick={() => setIsWeekend(false)}
+                      className="rounded-none"
+                    >
+                      Weekday
+                    </Button>
+                    <Button
+                      variant={isWeekend ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setIsWeekend(true)}
+                      className="rounded-none"
+                    >
+                      Weekend
+                    </Button>
+                  </div>
+                )}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Track your daily usage against your personalized plan ({isWeekend ? "Weekend" : "Weekday"})
+                {generatedPlan 
+                  ? `Track your daily usage against your personalized plan (${isWeekend ? "Weekend" : "Weekday"})`
+                  : "Set up a personalized plan to track your energy usage"
+                }
               </p>
             </CardHeader>
             <CardContent>
+              {generatedPlan ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {appliances.map((appliance, index) => {
                   const Icon = getApplianceIcon(appliance.name);
@@ -509,6 +515,16 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-muted-foreground mb-4">
+                    No energy plan found. Create a personalized plan to track your usage.
+                  </p>
+                  <Button onClick={() => window.location.href = '/plan'}>
+                    Go to Plan Page
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
