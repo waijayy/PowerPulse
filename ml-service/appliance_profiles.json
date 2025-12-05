@@ -1,34 +1,47 @@
 {
     "Fridge": {
         "phantom_power_watts": 1.0,
-        "active_threshold_watts": 703.97
+        "active_threshold_watts": 703.97,
+        "always_on": true
     },
     "Washing Machine": {
         "phantom_power_watts": 1.0,
-        "active_threshold_watts": 1468.88
+        "active_threshold_watts": 1468.88,
+        "always_on": false
     },
     "Computer/PC": {
         "phantom_power_watts": 2.79,
-        "active_threshold_watts": 92.92
+        "active_threshold_watts": 92.92,
+        "always_on": false
     },
     "Television": {
         "phantom_power_watts": 1.0,
-        "active_threshold_watts": 79.67
+        "active_threshold_watts": 79.67,
+        "always_on": false
     },
     "Microwave": {
         "phantom_power_watts": 1.07,
-        "active_threshold_watts": 781.86
+        "active_threshold_watts": 781.86,
+        "always_on": false
     },
     "Air Conditioner": {
         "phantom_power_watts": 1.0,
-        "active_threshold_watts": 1382.45
+        "active_threshold_watts": 1382.45,
+        "always_on": false
     },
     "Ceiling Fan": {
         "phantom_power_watts": 1.0,
-        "active_threshold_watts": 145.4
+        "active_threshold_watts": 145.4,
+        "always_on": false
+    },
+    "Refrigerator": {
+        "phantom_power_watts": 1.0,
+        "active_threshold_watts": 703.97,
+        "always_on": true
     },
     "LED Lights": {
         "phantom_power_watts": 0.0,
-        "active_threshold_watts": 5.0
+        "active_threshold_watts": 5.0,
+        "always_on": false
     }
 }

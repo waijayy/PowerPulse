@@ -16,6 +16,12 @@ APPLIANCE_MAPPING = {
     'Ceiling Fan': 'Appliance2',
 }
 
+# Appliances that run 24/7 (always on)
+ALWAYS_ON_APPLIANCES = {
+    'Fridge',
+    'Refrigerator',
+}
+
 def train_appliance_models():
     print("Loading dataset...")
     df = pd.read_csv(DATASET_PATH, nrows=100000)
@@ -50,14 +56,30 @@ def train_appliance_models():
 
             profiles[user_label] = {
                 'phantom_power_watts': round(float(phantom_power), 2),
-                'active_threshold_watts': round(float(active_threshold), 2)
+                'active_threshold_watts': round(float(active_threshold), 2),
+                'always_on': user_label in ALWAYS_ON_APPLIANCES
             }
             
         except Exception as e:
             print(f"Error training {user_label}: {e}")
-            profiles[user_label] = {'phantom_power_watts': 1.0, 'active_threshold_watts': 10.0}
+            profiles[user_label] = {
+                'phantom_power_watts': 1.0, 
+                'active_threshold_watts': 10.0,
+                'always_on': user_label in ALWAYS_ON_APPLIANCES
+            }
 
-    profiles['LED Lights'] = {'phantom_power_watts': 0.0, 'active_threshold_watts': 5.0}
+    # Add Refrigerator as alias for Fridge (same profile)
+    if 'Fridge' in profiles:
+        profiles['Refrigerator'] = {
+            **profiles['Fridge'],
+            'always_on': True
+        }
+
+    profiles['LED Lights'] = {
+        'phantom_power_watts': 0.0, 
+        'active_threshold_watts': 5.0,
+        'always_on': False
+    }
 
     output_path = os.path.join(os.path.dirname(__file__), 'appliance_profiles.json')
     with open(output_path, 'w') as f:
@@ -68,3 +90,4 @@ def train_appliance_models():
 
 if __name__ == "__main__":
     train_appliance_models()
+

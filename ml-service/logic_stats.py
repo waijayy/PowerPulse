@@ -179,17 +179,32 @@ TYPICAL_USAGE_HOURS = {
     'Rice Cooker': 1.0,
 }
 
-
 _cached_ml_patterns = None
 
 def get_hybrid_usage_factor(app_type: str, rated_watts: float = None) -> dict:
     """
     Hybrid approach combining:
-    1. ML patterns from REFIT data
-    2. Climate adjustments for Malaysia
-    3. Physics-based calculations
+    1. Profile-based always_on flag (runs 24h)
+    2. ML patterns (learned from REFIT data)
+    3. Climate adjustments (for Malaysia tropical climate)
+    4. Physics-based calculations
     """
     global _cached_ml_patterns
+    
+    # Load profiles to check always_on flag
+    profiles = load_profiles()
+    profile = profiles.get(app_type, {})
+    
+    # Check if appliance is always on (e.g., Fridge)
+    if profile.get('always_on', False):
+        return {
+            'final_factor': 1.0,
+            'ml_factor': 1.0,
+            'climate_factor': 1.0,
+            'physics_factor': 1.0,
+            'source': 'always_on',
+            'usage_hours_day': 24.0
+        }
     
     if _cached_ml_patterns is None:
         try:
