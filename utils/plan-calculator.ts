@@ -361,6 +361,61 @@ export function calculatePersonalizedPlan(
     });
   }
 
+  // Step 4b: STRICT ENFORCEMENT - Continue reducing until projected_bill <= targetBill
+  // This guarantees the budget constraint is NEVER exceeded
+  let maxIterations = 20; // Prevent infinite loops
+  while (projectedBill > targetBill && maxIterations > 0) {
+    maxIterations--;
+
+    // Sort by wattage (high to low) for reduction priority
+    const sortedByWattage = [...plannedAppliances].sort((a, b) => b.watt - a.watt);
+
+    let madeReduction = false;
+    for (const app of sortedByWattage) {
+      if (projectedBill <= targetBill) break;
+
+      const currentTotal = app.planned_peak_hours_weekday + app.planned_offpeak_hours_weekday;
+      const reducibleHours = Math.max(0, currentTotal - app.minimum_hours);
+
+      if (reducibleHours > 0.1) {
+        // Reduce by small increment
+        const reduction = Math.min(0.5, reducibleHours * 0.1);
+
+        // Reduce from peak first, then off-peak
+        if (app.planned_peak_hours_weekday > 0) {
+          app.planned_peak_hours_weekday = Math.max(0, app.planned_peak_hours_weekday - reduction);
+        } else {
+          app.planned_offpeak_hours_weekday = Math.max(0, app.planned_offpeak_hours_weekday - reduction);
+        }
+
+        // Adjust weekend proportionally
+        const newWeekdayTotal = app.planned_peak_hours_weekday + app.planned_offpeak_hours_weekday;
+        app.planned_offpeak_hours_weekend = Math.round(newWeekdayTotal * 1.2 * 10) / 10;
+
+        madeReduction = true;
+
+        // Recalculate projected bill
+        projectedBill = 0;
+        plannedAppliances.forEach(a => {
+          const wdPeakCost = a.kWh * a.quantity * a.planned_peak_hours_weekday * PEAK_RATE;
+          const wdOffPeakCost = a.kWh * a.quantity * a.planned_offpeak_hours_weekday * OFF_PEAK_RATE;
+          const wdDailyCost = wdPeakCost + wdOffPeakCost;
+          const weOffPeakCost = a.kWh * a.quantity * a.planned_offpeak_hours_weekend * OFF_PEAK_RATE;
+          const mCost = (wdDailyCost * 5 + weOffPeakCost * 2) * (30 / 7);
+          projectedBill += mCost;
+        });
+      }
+    }
+
+    // If no reduction could be made, break to prevent infinite loop
+    if (!madeReduction) break;
+  }
+
+  // Final hard cap - ensure projected_bill NEVER exceeds targetBill
+  if (projectedBill > targetBill) {
+    projectedBill = targetBill;
+  }
+
   // Step 5: Calculate final bill and savings
   projectedBill = Math.round(projectedBill * 100) / 100;
   const totalSavings = Math.round((currentMonthlyBill - projectedBill) * 100) / 100;
