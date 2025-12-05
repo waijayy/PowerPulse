@@ -13,6 +13,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 import { cn } from "@/lib/utils"
 import { predictPhantomLoad, getUsageStats, type PhantomDetectionResult, type UsageStatsResult } from "@/lib/ml-api"
 import { getAppliances } from "../appliances/actions"
+import { createClient } from "@/utils/supabase/client"
 
 const scheduleItems = [
   {
@@ -64,10 +65,10 @@ export default function InsightsPage() {
   const [detectionResult, setDetectionResult] = useState<PhantomDetectionResult | null>(null)
   const [usageStats, setUsageStats] = useState<UsageStatsResult | null>(null)
   const [userAppliances, setUserAppliances] = useState<Array<{ type: string; rated_watts: number }>>([])
+  const [totalMonthlyKwh, setTotalMonthlyKwh] = useState<number>(300) // Default fallback
   const [wasteData, setWasteData] = useState([
-    { name: "Active Usage", value: 65, color: "rgb(37 99 235)" },
+    { name: "Active Usage", value: 80, color: "rgb(37 99 235)" },
     { name: "Phantom Load", value: 20, color: "rgb(234 179 8)" },
-    { name: "Inefficient Appliances", value: 15, color: "rgb(239 68 68)" },
   ])
 
   useEffect(() => {
@@ -97,13 +98,13 @@ export default function InsightsPage() {
         const stats = await getUsageStats()
         setUsageStats(stats)
         if (stats.summary) {
-          const activePercent = stats.summary.active_usage_percent || 65
+          const activePercent = stats.summary.active_usage_percent || 80
           const phantomPercent = stats.summary.phantom_usage_percent || 20
-          const inefficientPercent = Math.max(0, 100 - activePercent - phantomPercent)
+          // Ensure they add up to 100%
+          const adjustedActivePercent = Math.min(100, Math.max(0, 100 - phantomPercent))
           setWasteData([
-            { name: "Active Usage", value: activePercent, color: "rgb(37 99 235)" },
+            { name: "Active Usage", value: adjustedActivePercent, color: "rgb(37 99 235)" },
             { name: "Phantom Load", value: phantomPercent, color: "rgb(234 179 8)" },
-            { name: "Inefficient Appliances", value: inefficientPercent, color: "rgb(239 68 68)" },
           ])
         }
       } catch (err) {
@@ -111,9 +112,50 @@ export default function InsightsPage() {
       }
     }
 
+    async function loadProfileData() {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('total_kwh_usage')
+            .eq('id', user.id)
+            .single()
+          
+          if (profile?.total_kwh_usage) {
+            setTotalMonthlyKwh(profile.total_kwh_usage)
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load profile data:", err)
+      }
+    }
+
     loadAppliances()
     loadStats()
+    loadProfileData()
   }, [])
+
+  const updateWasteChart = (detectedPhantomWatts: number) => {
+    // Calculate monthly phantom load in kWh
+    // Phantom load runs 24/7, so: watts * 24 hours * 30 days / 1000 = kWh
+    const monthlyPhantomKwh = (detectedPhantomWatts * 24 * 30) / 1000
+    
+    // Calculate phantom load as percentage of total monthly usage
+    const phantomPercent = totalMonthlyKwh > 0 
+      ? Math.min(100, (monthlyPhantomKwh / totalMonthlyKwh) * 100)
+      : 0
+    
+    // Calculate active usage as the remainder to maintain 100% total
+    const activePercent = Math.max(0, 100 - phantomPercent)
+    
+    // Update the chart data
+    setWasteData([
+      { name: "Active Usage", value: Math.round(activePercent * 10) / 10, color: "rgb(37 99 235)" },
+      { name: "Phantom Load", value: Math.round(phantomPercent * 10) / 10, color: "rgb(234 179 8)" },
+    ])
+  }
 
   const handleScan = async () => {
     if (userAppliances.length === 0) return
@@ -121,6 +163,11 @@ export default function InsightsPage() {
     try {
       const result = await predictPhantomLoad(meterReading[0], userAppliances)
       setDetectionResult(result)
+      
+      // Update the waste chart with detected phantom load
+      if (result.is_valid_detection && result.total_phantom_watts > 0) {
+        updateWasteChart(result.total_phantom_watts)
+      }
     } catch (err) {
       console.error("ML service not available")
       setDetectionResult({
@@ -261,7 +308,7 @@ export default function InsightsPage() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-4">
+              <div className="grid grid-cols-2 gap-2 mt-4">
                 {wasteData.map((item, index) => (
                   <div key={index} className="flex flex-col items-center text-center">
                     <div className="w-3 h-3 rounded-full mb-1" style={{ backgroundColor: item.color }} />
