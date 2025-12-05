@@ -335,14 +335,6 @@ export default function DashboardPage() {
 
         </div>
 
-        <LiveUsageChart data={usageData} />
-
-        <UsageTrendChart
-          data={trendData}
-          budgetTarget={budgetTarget}
-          isLoading={isLoadingPredictions}
-        />
-
         {/* Real Time Tracker */}
         {appliances.length > 0 && (
           <Card>
@@ -425,6 +417,16 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         )}
+
+        <LiveUsageChart data={usageData} />
+
+        <UsageTrendChart
+          data={trendData}
+          budgetTarget={budgetTarget}
+          isLoading={isLoadingPredictions}
+        />
+
+
       </div>
     </AppShell>
   )
