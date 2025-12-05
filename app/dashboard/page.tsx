@@ -21,7 +21,6 @@ import {
   Microwave,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
 import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
 import { createClient } from "@/utils/supabase/client"
 import { getUsageStats, predictWeekFromRealData, predictMonthlyUsage, type UsageStatsResult, type ApplianceData, type Plan, type PlanItem, type MonthlyPredictionResult } from "@/lib/ml-api"
@@ -46,20 +45,6 @@ const getApplianceIcon = (name: string) => {
   return Activity;
 };
 
-const generateUsageData = () => {
-  const now = new Date()
-  const data = []
-  for (let i = 23; i >= 0; i--) {
-    const time = new Date(now.getTime() - i * 5 * 60000)
-    data.push({
-      time: time.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      usage: Math.random() * 3 + 1.5 + (i < 12 ? 1 : 0),
-      limit: 4.5,
-    })
-  }
-  return data
-}
-
 type GridStatus = "healthy" | "warning" | "critical"
 
 const getGridStatus = (): GridStatus => {
@@ -68,9 +53,8 @@ const getGridStatus = (): GridStatus => {
 }
 
 export default function DashboardPage() {
-  const [usageData, setUsageData] = useState<Array<{ time: string; usage: number; limit: number }>>([])
   const [gridStatus, setGridStatus] = useState<GridStatus>("healthy")
-  const [currentUsage, setCurrentUsage] = useState(85)
+  const [currentUsage, setCurrentUsage] = useState(0)
   const [budgetTarget, setBudgetTarget] = useState(150)
   const [trendData, setTrendData] = useState<Array<{ label: string; predicted: number }>>([])
   const [mlStats, setMlStats] = useState<UsageStatsResult | null>(null)
@@ -86,13 +70,15 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setIsClient(true)
-    setUsageData(generateUsageData())
     setGridStatus(getGridStatus())
 
     const interval = setInterval(() => {
-      setUsageData(generateUsageData())
       setGridStatus(getGridStatus())
-      setCurrentUsage((prev) => Math.min(prev + Math.random() * 2 - 0.5, 100))
+      // Simulate current usage with small fluctuations
+      setCurrentUsage((prev) => {
+        const fluctuation = (Math.random() - 0.5) * 2 // -1 to +1
+        return Math.max(0, prev + fluctuation)
+      })
     }, 5000)
 
     // Fetch data from the same API endpoint as Plan page
@@ -108,6 +94,9 @@ export default function DashboardPage() {
             console.log('Dashboard profile fetch:', data.profile);
             if (data.profile.monthly_budget_target != null) {
               setBudgetTarget(data.profile.monthly_budget_target)
+              // Initialize current usage to random 50-85% of budget target
+              const randomPercent = 0.5 + Math.random() * 0.35 // 50% to 85%
+              setCurrentUsage(data.profile.monthly_budget_target * randomPercent)
             }
           }
           if (data.planning) {
@@ -205,7 +194,7 @@ export default function DashboardPage() {
 
 
 
-  const budgetProgress = (currentUsage / budgetTarget) * 100
+  const budgetProgress = budgetTarget > 0 ? (currentUsage / budgetTarget) * 100 : 0
   const isNearLimit = budgetProgress > 75
 
   // Pre-compute simulated usage values so they don't change on every render
@@ -523,8 +512,6 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         )}
-
-        <LiveUsageChart data={usageData} />
 
         <UsageTrendChart
           data={forecastView === "weekly" ? trendData : monthlyData}
