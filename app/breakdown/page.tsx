@@ -14,6 +14,7 @@ import { disaggregateEnergy, type DisaggregateResult, type ApplianceItem } from 
 import { getAppliances } from "../appliances/actions"
 import { createClient } from "@/utils/supabase/client"
 import { updateProfileBill } from "../profile/actions"
+import { ELECTRICITY_RATES, senToRM } from "@/constants/electricity-rates"
 
 const COLORS = [
   "hsl(var(--chart-1))",
@@ -382,10 +383,10 @@ export default function BreakdownPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    RM {(result.total_kwh * 0.218).toFixed(2)}
+                    RM {(result.total_kwh * senToRM(ELECTRICITY_RATES.HIGH_USAGE.peak)).toFixed(2)}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Based on TNB tariff RM 0.218/kWh
+                    Based on highest TNB tariff RM {senToRM(ELECTRICITY_RATES.HIGH_USAGE.peak).toFixed(4)}/kWh
                   </p>
                 </CardContent>
               </Card>
