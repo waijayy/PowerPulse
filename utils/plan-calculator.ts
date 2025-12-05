@@ -58,6 +58,12 @@ function getMinimumHours(name: string): number {
   return 0; // Can be turned off if needed
 }
 
+// Check if appliance is always-on (24/7)
+function isAlwaysOn(name: string): boolean {
+  const lowerName = name.toLowerCase();
+  return lowerName.includes('refrigerator') || lowerName.includes('fridge');
+}
+
 // Calculate how much to shift to off-peak based on wattage
 function getOffPeakPriority(watt: number): number {
   // Returns percentage of hours that should be off-peak (0.0 to 1.0)
@@ -237,6 +243,23 @@ export function calculatePersonalizedPlan(
   let totalAllocatedHours = 0;
 
   const plannedAppliances = applianceData.map(app => {
+    // Check if this is an always-on appliance (like fridge)
+    const alwaysOn = isAlwaysOn(app.name);
+
+    // For always-on appliances, fix at 24h (8h peak + 16h off-peak for weekday)
+    if (alwaysOn) {
+      return {
+        ...app,
+        planned_peak_hours_weekday: MAX_PEAK_HOURS, // 8h
+        planned_offpeak_hours_weekday: MAX_OFF_PEAK_HOURS, // 16h
+        planned_peak_hours_weekend: 0, // Weekend all off-peak
+        planned_offpeak_hours_weekend: 24, // Full 24h
+        suggested_time_weekday: "Always on (24h)",
+        suggested_time_weekend: "Always on (24h)",
+        is_always_on: true,
+      };
+    }
+
     // Allocate hours based on usage percentage
     let allocatedHours = affordableTotalHours * app.usage_percentage;
 
@@ -300,6 +323,7 @@ export function calculatePersonalizedPlan(
       planned_offpeak_hours_weekend: weekendTotalHours,
       suggested_time_weekday: suggestedTimeWeekday,
       suggested_time_weekend: suggestedTimeWeekend,
+      is_always_on: false,
     };
   });
 
@@ -327,6 +351,9 @@ export function calculatePersonalizedPlan(
 
     sortedByWattage.forEach(app => {
       if (projectedBill <= targetBill) return; // Stop if we've reached target
+
+      // Skip always-on appliances (fridge)
+      if ((app as any).is_always_on) return;
 
       const currentTotal = app.planned_peak_hours_weekday + app.planned_offpeak_hours_weekday;
       const reducibleHours = Math.max(0, currentTotal - app.minimum_hours);
@@ -373,6 +400,9 @@ export function calculatePersonalizedPlan(
     let madeReduction = false;
     for (const app of sortedByWattage) {
       if (projectedBill <= targetBill) break;
+
+      // Skip always-on appliances (fridge)
+      if ((app as any).is_always_on) continue;
 
       const currentTotal = app.planned_peak_hours_weekday + app.planned_offpeak_hours_weekday;
       const reducibleHours = Math.max(0, currentTotal - app.minimum_hours);
