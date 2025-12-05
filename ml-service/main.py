@@ -6,6 +6,7 @@ import logic_training
 import logic_detection
 import logic_stats
 import forecast_api
+import monthly_api
 
 app = FastAPI(title="PowerPulse ML Service")
 
@@ -85,6 +86,9 @@ def disaggregate_usage(request: DisaggregateRequest):
 # Mount the forecasting API under /forecast so its routes are accessible
 app.mount("/forecast", forecast_api.app)
 
+# Mount the monthly forecasting API under /monthly
+app.mount("/monthly", monthly_api.app)
+
 # Explicitly load forecast models since startup events don't fire for mounted apps
 @app.on_event("startup")
 def load_forecast_models():
@@ -94,3 +98,10 @@ def load_forecast_models():
     forecast_api.load_models_and_scalers()
     forecast_api.load_dataset_cache()
     print("="*50 + "\n")
+    
+    print("="*50)
+    print("  Loading Monthly Forecast Model")
+    print("="*50)
+    monthly_api.load_or_train_model()
+    print("="*50 + "\n")
+

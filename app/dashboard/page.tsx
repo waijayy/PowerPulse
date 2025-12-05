@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils"
 import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
 import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
 import { createClient } from "@/utils/supabase/client"
-import { getUsageStats, predictWeekFromRealData, type UsageStatsResult, type ApplianceData, type Plan, type PlanItem } from "@/lib/ml-api"
+import { getUsageStats, predictWeekFromRealData, predictMonthlyUsage, type UsageStatsResult, type ApplianceData, type Plan, type PlanItem, type MonthlyPredictionResult } from "@/lib/ml-api"
 
 const applianceIcons: Record<string, React.ElementType> = {
   "Air Conditioner": AirVent,
@@ -80,6 +80,9 @@ export default function DashboardPage() {
   const [isClient, setIsClient] = useState(false)
   const [isLoadingPredictions, setIsLoadingPredictions] = useState(true)
   const [isWeekend, setIsWeekend] = useState(false)
+  const [forecastView, setForecastView] = useState<"weekly" | "monthly">("weekly")
+  const [monthlyData, setMonthlyData] = useState<Array<{ label: string; predicted: number }>>([])
+  const [isLoadingMonthly, setIsLoadingMonthly] = useState(false)
 
   useEffect(() => {
     setIsClient(true)
@@ -160,8 +163,42 @@ export default function DashboardPage() {
       }
     }
 
+    async function loadMonthlyPredictions() {
+      setIsLoadingMonthly(true)
+      try {
+        const prediction = await predictMonthlyUsage()
+
+        if (prediction.success && prediction.predictions) {
+          const monthlyPredictionData = prediction.predictions.map(p => ({
+            label: p.month_label,
+            predicted: p.predicted_kwh
+          }))
+
+          setMonthlyData(monthlyPredictionData)
+          console.log("Monthly prediction loaded:", {
+            source: prediction.data_source,
+            total: prediction.total_6_months_kwh
+          })
+        }
+      } catch (err) {
+        console.error("Monthly Forecast API not available:", err)
+        // Set fallback monthly data with fixed values
+        setMonthlyData([
+          { label: "Dec 25", predicted: 450 },
+          { label: "Jan 26", predicted: 420 },
+          { label: "Feb 26", predicted: 410 },
+          { label: "Mar 26", predicted: 465 },
+          { label: "Apr 26", predicted: 485 },
+          { label: "May 26", predicted: 470 }
+        ])
+      } finally {
+        setIsLoadingMonthly(false)
+      }
+    }
+
     loadMLStats()
     loadPredictions()
+    loadMonthlyPredictions()
 
     return () => clearInterval(interval)
   }, [])
@@ -490,9 +527,11 @@ export default function DashboardPage() {
         <LiveUsageChart data={usageData} />
 
         <UsageTrendChart
-          data={trendData}
+          data={forecastView === "weekly" ? trendData : monthlyData}
           budgetTarget={budgetTarget}
-          isLoading={isLoadingPredictions}
+          isLoading={forecastView === "weekly" ? isLoadingPredictions : isLoadingMonthly}
+          forecastView={forecastView}
+          onForecastViewChange={setForecastView}
         />
 
 

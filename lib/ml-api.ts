@@ -258,3 +258,48 @@ export async function predictWeekFromRealData(): Promise<RealDataPredictionResul
   }
   return res.json();
 }
+
+// --- Monthly Forecast API ---
+
+export interface MonthlyPrediction {
+  month: string;
+  year: number;
+  month_label: string;
+  predicted_kwh: number;
+}
+
+export interface MonthlyPredictionResult {
+  success: boolean;
+  predictions: MonthlyPrediction[];
+  total_6_months_kwh: number;
+  data_source: string;
+  message?: string;
+}
+
+/**
+ * Get monthly energy usage predictions for the next 6 months
+ * Uses LSTM model trained on House_4 dataset
+ */
+export async function predictMonthlyUsage(): Promise<MonthlyPredictionResult> {
+  const res = await fetch(`${ML_API_URL}/monthly/predict`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || 'Failed to get monthly prediction');
+  }
+  return res.json();
+}
+
+/**
+ * Check if the monthly forecast API is available
+ */
+export async function checkMonthlyForecastHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${ML_API_URL}/monthly/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
