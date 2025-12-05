@@ -362,13 +362,15 @@ export default function SetupPage() {
                                 id={`${appliance.id}-count`}
                                 type="number"
                                 min="1"
-                                value={data.count}
+                                placeholder="0"
+                                value={data.count === 0 ? "" : data.count}
                                 onChange={(e) => {
-                                  const value = Number.parseInt(e.target.value) || 1
+                                  const value = e.target.value === "" ? 0 : Number.parseInt(e.target.value)
                                   updateApplianceData(appliance.id, "count", value)
                                 }}
                                 className={cn(
                                   "h-9",
+                                  data.count === 0 && "text-muted-foreground",
                                   isValueInvalid(appliance.id, 'count', data.count) && "border-red-500 ring-2 ring-red-500/20"
                                 )}
                               />
@@ -386,13 +388,15 @@ export default function SetupPage() {
                                 id={`${appliance.id}-watt`}
                                 type="number"
                                 min="1"
-                                value={data.watt}
+                                placeholder="0"
+                                value={data.watt === 0 ? "" : data.watt}
                                 onChange={(e) => {
-                                  const value = Number.parseFloat(e.target.value) || 0
+                                  const value = e.target.value === "" ? 0 : Number.parseFloat(e.target.value)
                                   updateApplianceData(appliance.id, "watt", value)
                                 }}
                                 className={cn(
                                   "h-9",
+                                  data.watt === 0 && "text-muted-foreground",
                                   isValueInvalid(appliance.id, 'watt', data.watt) && "border-red-500 ring-2 ring-red-500/20"
                                 )}
                               />

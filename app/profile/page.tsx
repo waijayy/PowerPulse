@@ -209,6 +209,16 @@ export default function ProfilePage() {
   const handleAddAppliance = async () => {
     if (!selectedType) return
 
+    // Validate values are not 0
+    if (newQuantity === 0 || newWatt === 0) {
+      toast({
+        title: "Invalid Input Values",
+        description: "Quantity and Wattage must be greater than 0.",
+        variant: "destructive",
+      })
+      return
+    }
+
     const type = applianceTypes.find(t => t.id === selectedType)
     if (!type) return
 
@@ -313,6 +323,16 @@ export default function ProfilePage() {
   const handleUpdateAppliance = async (id: string) => {
     const appliance = appliances.find(a => a.id === id)
     if (!appliance) return
+
+    // Validate values are not 0
+    if (appliance.quantity === 0 || appliance.watt === 0) {
+      toast({
+        title: "Invalid Input Values",
+        description: "Quantity and Wattage must be greater than 0.",
+        variant: "destructive",
+      })
+      return
+    }
 
     // Only allow updating quantity and watt - usage hours are calculated automatically
     const { error } = await supabase
@@ -613,9 +633,11 @@ export default function ProfilePage() {
                                     <Input 
                                       type="number" 
                                       min="1" 
-                                      value={newQuantity} 
-                                      onChange={(e) => setNewQuantity(parseInt(e.target.value) || 1)}
+                                      placeholder="0"
+                                      value={newQuantity === 0 ? "" : newQuantity} 
+                                      onChange={(e) => setNewQuantity(e.target.value === "" ? 0 : parseInt(e.target.value))}
                                       className={cn(
+                                        newQuantity === 0 && "text-muted-foreground",
                                         isValueInvalid(selectedType, 'quantity', newQuantity) && "border-red-500 ring-2 ring-red-500/20"
                                       )}
                                     />
@@ -629,10 +651,12 @@ export default function ProfilePage() {
                                     <Label>Power (Watts)</Label>
                                     <Input 
                                       type="number" 
-                                      min="0" 
-                                      value={newWatt} 
-                                      onChange={(e) => setNewWatt(parseFloat(e.target.value) || 0)}
+                                      min="1" 
+                                      placeholder="0"
+                                      value={newWatt === 0 ? "" : newWatt} 
+                                      onChange={(e) => setNewWatt(e.target.value === "" ? 0 : parseFloat(e.target.value))}
                                       className={cn(
+                                        newWatt === 0 && "text-muted-foreground",
                                         isValueInvalid(selectedType, 'watt', newWatt) && "border-red-500 ring-2 ring-red-500/20"
                                       )}
                                     />
@@ -691,17 +715,25 @@ export default function ProfilePage() {
                             <Input 
                               type="number" 
                               min="1" 
-                              value={appliance.quantity} 
-                              onChange={(e) => updateLocalAppliance(appliance.id, 'quantity', parseInt(e.target.value) || 1)}
+                              placeholder="0"
+                              value={appliance.quantity === 0 ? "" : appliance.quantity} 
+                              onChange={(e) => updateLocalAppliance(appliance.id, 'quantity', e.target.value === "" ? 0 : parseInt(e.target.value))}
+                              className={cn(
+                                appliance.quantity === 0 && "text-muted-foreground"
+                              )}
                             />
                           </div>
                           <div className="space-y-2">
                             <Label>Power (Watts)</Label>
                             <Input 
                               type="number" 
-                              min="0" 
-                              value={appliance.watt} 
-                              onChange={(e) => updateLocalAppliance(appliance.id, 'watt', parseFloat(e.target.value) || 0)}
+                              min="1" 
+                              placeholder="0"
+                              value={appliance.watt === 0 ? "" : appliance.watt} 
+                              onChange={(e) => updateLocalAppliance(appliance.id, 'watt', e.target.value === "" ? 0 : parseFloat(e.target.value))}
+                              className={cn(
+                                appliance.watt === 0 && "text-muted-foreground"
+                              )}
                             />
                           </div>
                         </div>
