@@ -40,7 +40,7 @@ export async function GET() {
 
     return NextResponse.json({
       appliances,
-      profile: profile || { total_bill_amount: 0, monthly_budget_target: 150, expected_monthly_cost: 0 },
+      profile: profile || { total_bill_amount: 0, monthly_budget_target: 200, expected_monthly_cost: 0 },
       planning: planning?.plan_data || null
     })
   } catch (error) {

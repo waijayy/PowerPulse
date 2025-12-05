@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
 import { AppShell } from "@/components/app-shell";
@@ -1043,6 +1043,8 @@ export default function PlanPage() {
             </Card>
           </>
         )}
+
+
       </div>
     </AppShell>
   );

@@ -1,17 +1,81 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { AppShell } from "@/components/app-shell"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertTriangle, TrendingUp, Activity } from "lucide-react"
+import {
+  AlertTriangle,
+  TrendingUp,
+  Activity,
+  AirVent,
+  Refrigerator,
+  WashingMachine,
+  Tv,
+  Monitor,
+  Lightbulb,
+  Fan,
+  Microwave,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { LiveUsageChart } from "@/components/dashboard/live-usage-chart"
 import { UsageTrendChart } from "@/components/dashboard/usage-trend-chart"
-import { createClient } from "@/utils/supabase/client"
 import { getUsageStats, type UsageStatsResult } from "@/lib/ml-api"
+
+type ApplianceData = {
+  id: number;
+  name: string;
+  quantity: number;
+  watt: number;
+  peak_usage_hours: number;
+  off_peak_usage_hours: number;
+  monthly_cost: number;
+};
+
+type PlanItem = {
+  name: string;
+  current_hours: string;
+  planned_hours: string;
+  planned_peak_hours?: number;
+  planned_off_peak_hours?: number;
+  planned_peak_hours_weekday?: number;
+  planned_off_peak_hours_weekday?: number;
+  planned_peak_hours_weekend?: number;
+  planned_offpeak_hours_weekend?: number;
+  suggested_time_weekday?: string;
+  suggested_time_weekend?: string;
+  monthly_savings: number;
+  change: string;
+};
+
+type Plan = {
+  plan: PlanItem[];
+  projected_bill: number;
+  total_savings: number;
+  explanation: string;
+};
+
+const applianceIcons: Record<string, React.ElementType> = {
+  "Air Conditioner": AirVent,
+  Refrigerator: Refrigerator,
+  "Washing Machine": WashingMachine,
+  Television: Tv,
+  "Computer/PC": Monitor,
+  "LED Lights": Lightbulb,
+  "Ceiling Fan": Fan,
+  Microwave: Microwave,
+};
+
+const getApplianceIcon = (name: string) => {
+  for (const [key, Icon] of Object.entries(applianceIcons)) {
+    if (name.toLowerCase().includes(key.toLowerCase())) {
+      return Icon;
+    }
+  }
+  return Activity;
+};
 
 const generateUsageData = () => {
   const now = new Date()
@@ -36,10 +100,10 @@ const generateWeeklyDataFromStats = (stats: UsageStatsResult | null) => {
       target: 20,
     }))
   }
-  
+
   const totalActiveHours = stats.summary?.total_active_hours || 100
   const avgDailyUsage = totalActiveHours / 7
-  
+
   return days.map((day, index) => ({
     label: day,
     usage: avgDailyUsage * (0.8 + Math.random() * 0.4),
@@ -50,11 +114,11 @@ const generateWeeklyDataFromStats = (stats: UsageStatsResult | null) => {
 const generateMonthlyDataFromStats = (stats: UsageStatsResult | null) => {
   const data = []
   const now = new Date()
-  
-  const baseUsage = stats?.summary?.total_active_hours 
-    ? stats.summary.total_active_hours / 30 
+
+  const baseUsage = stats?.summary?.total_active_hours
+    ? stats.summary.total_active_hours / 30
     : 18
-  
+
   for (let i = 29; i >= 0; i--) {
     const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
     data.push({
@@ -77,10 +141,12 @@ export default function DashboardPage() {
   const [usageData, setUsageData] = useState<Array<{ time: string; usage: number; limit: number }>>([])
   const [gridStatus, setGridStatus] = useState<GridStatus>("healthy")
   const [currentUsage, setCurrentUsage] = useState(85)
-  const [budgetTarget, setBudgetTarget] = useState(150)
+  const [budgetTarget, setBudgetTarget] = useState(200)
   const [viewMode, setViewMode] = useState<"week" | "month">("week")
   const [trendData, setTrendData] = useState<Array<{ label: string; usage: number; target: number }>>([])
   const [mlStats, setMlStats] = useState<UsageStatsResult | null>(null)
+  const [appliances, setAppliances] = useState<ApplianceData[]>([])
+  const [generatedPlan, setGeneratedPlan] = useState<Plan | null>(null)
 
   const [isClient, setIsClient] = useState(false)
 
@@ -88,28 +154,37 @@ export default function DashboardPage() {
     setIsClient(true)
     setUsageData(generateUsageData())
     setGridStatus(getGridStatus())
-    
+
     const interval = setInterval(() => {
       setUsageData(generateUsageData())
       setGridStatus(getGridStatus())
       setCurrentUsage((prev) => Math.min(prev + Math.random() * 2 - 0.5, 100))
     }, 5000)
 
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        supabase
-          .from('profiles')
-          .select('monthly_budget_target')
-          .eq('id', user.id)
-          .single()
-          .then(({ data: profile }) => {
-            if (profile?.monthly_budget_target) {
-              setBudgetTarget(profile.monthly_budget_target)
+    // Fetch data from the same API endpoint as Plan page
+    async function fetchDashboardData() {
+      try {
+        const res = await fetch('/api/appliances')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.appliances) {
+            setAppliances(data.appliances)
+          }
+          if (data.profile) {
+            console.log('Dashboard profile fetch:', data.profile);
+            if (data.profile.monthly_budget_target != null) {
+              setBudgetTarget(data.profile.monthly_budget_target)
             }
-          })
+          }
+          if (data.planning) {
+            setGeneratedPlan(data.planning)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch dashboard data:', error)
       }
-    })
+    }
+    fetchDashboardData()
 
     async function loadMLStats() {
       try {
@@ -137,6 +212,68 @@ export default function DashboardPage() {
 
   const budgetProgress = (currentUsage / budgetTarget) * 100
   const isNearLimit = budgetProgress > 75
+
+  // Pre-compute simulated usage values so they don't change on every render
+  const simulatedUsageData = useMemo(() => {
+    return appliances.map((appliance) => {
+      const applianceName = appliance.name.toLowerCase();
+
+      // Find planned hours from generated plan (if exists)
+      const planItem = generatedPlan?.plan?.find(
+        (p) =>
+          p.name.toLowerCase().includes(appliance.name.toLowerCase()) ||
+          appliance.name.toLowerCase().includes(p.name.toLowerCase())
+      );
+
+      const plannedPeakWeekday = planItem?.planned_peak_hours_weekday ?? appliance.peak_usage_hours;
+      const plannedOffPeakWeekday = planItem?.planned_off_peak_hours_weekday ?? appliance.off_peak_usage_hours;
+
+      let simulatedPeakUsage: number;
+      let simulatedOffPeakUsage: number;
+
+      // Peak usage simulation
+      if (plannedPeakWeekday === 0) {
+        simulatedPeakUsage = 0;
+      } else if (applianceName.includes('air conditioner') || applianceName.includes('ac')) {
+        simulatedPeakUsage = plannedPeakWeekday * 0.55;
+      } else if (applianceName.includes('computer') || applianceName.includes('pc')) {
+        simulatedPeakUsage = plannedPeakWeekday * 1.12;
+      } else if (applianceName.includes('tv') || applianceName.includes('television')) {
+        simulatedPeakUsage = plannedPeakWeekday * 1.15;
+      } else if (applianceName.includes('washing machine')) {
+        simulatedPeakUsage = plannedPeakWeekday * 0.85; // Orange (70-99%)
+      } else if (applianceName.includes('refrigerator')) {
+        simulatedPeakUsage = plannedPeakWeekday * 0.58;
+      } else {
+        simulatedPeakUsage = plannedPeakWeekday * 0.6;
+      }
+
+      // Off-peak usage simulation
+      if (plannedOffPeakWeekday === 0) {
+        simulatedOffPeakUsage = 0;
+      } else if (applianceName.includes('air conditioner') || applianceName.includes('ac')) {
+        simulatedOffPeakUsage = plannedOffPeakWeekday * 0.52;
+      } else if (applianceName.includes('computer') || applianceName.includes('pc')) {
+        simulatedOffPeakUsage = plannedOffPeakWeekday * 0.55;
+      } else if (applianceName.includes('tv') || applianceName.includes('television')) {
+        simulatedOffPeakUsage = plannedOffPeakWeekday * 0.58;
+      } else if (applianceName.includes('washing machine')) {
+        simulatedOffPeakUsage = plannedOffPeakWeekday * 0.6; // Green (<70%)
+      } else if (applianceName.includes('refrigerator')) {
+        simulatedOffPeakUsage = plannedOffPeakWeekday * 0.55;
+      } else {
+        simulatedOffPeakUsage = plannedOffPeakWeekday * 0.58;
+      }
+
+      return {
+        applianceId: appliance.id,
+        plannedPeakWeekday,
+        plannedOffPeakWeekday,
+        simulatedPeakUsage,
+        simulatedOffPeakUsage,
+      };
+    });
+  }, [appliances, generatedPlan]);
 
   const gridConfig = {
     healthy: {
@@ -193,7 +330,7 @@ export default function DashboardPage() {
               >
                 {currentGridConfig.badge}
               </Badge>
-              
+
               {gridStatus === "critical" && (
                 <div className="mt-3 pt-3 border-t border-chart-3/20">
                   <div className="flex items-start gap-2">
@@ -244,12 +381,95 @@ export default function DashboardPage() {
 
         <LiveUsageChart data={usageData} />
 
-        <UsageTrendChart 
-          data={trendData} 
-          viewMode={viewMode} 
+        <UsageTrendChart
+          data={trendData}
+          viewMode={viewMode}
           onViewModeChange={setViewMode}
           budgetTarget={budgetTarget}
         />
+
+        {/* Real Time Tracker */}
+        {appliances.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Real Time Tracker</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Track your daily usage against your personalized plan (Weekday)
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {appliances.map((appliance, index) => {
+                  const Icon = getApplianceIcon(appliance.name);
+
+                  // Get pre-computed simulated data
+                  const simData = simulatedUsageData.find(d => d.applianceId === appliance.id);
+                  const plannedPeakWeekday = simData?.plannedPeakWeekday ?? appliance.peak_usage_hours;
+                  const plannedOffPeakWeekday = simData?.plannedOffPeakWeekday ?? appliance.off_peak_usage_hours;
+                  const simulatedPeakUsage = simData?.simulatedPeakUsage ?? 0;
+                  const simulatedOffPeakUsage = simData?.simulatedOffPeakUsage ?? 0;
+
+                  // Calculate percentages
+                  const peakPercent = plannedPeakWeekday > 0 ? (simulatedPeakUsage / plannedPeakWeekday) * 100 : 0;
+                  const offPeakPercent = plannedOffPeakWeekday > 0 ? (simulatedOffPeakUsage / plannedOffPeakWeekday) * 100 : 0;
+
+                  // Determine progress bar colors based on percentage
+                  const getBarColor = (percent: number) => {
+                    if (percent < 70) return "bg-green-500";
+                    if (percent <= 100) return "bg-orange-500";
+                    return "bg-red-500";
+                  };
+
+                  return (
+                    <Card key={appliance.id} className="border-2">
+                      <CardContent className="p-4">
+                        {/* Appliance Name */}
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="p-2 rounded-lg bg-primary/10">
+                            <Icon className="h-4 w-4 text-primary" />
+                          </div>
+                          <span className="font-medium text-sm">{appliance.name}</span>
+                        </div>
+
+                        {/* Peak Hour Progress */}
+                        <div className="space-y-2 mb-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-muted-foreground">Peak hour</span>
+                            <span className="text-xs font-medium">
+                              {simulatedPeakUsage.toFixed(1)}h/{plannedPeakWeekday.toFixed(1)}h
+                            </span>
+                          </div>
+                          <div className="h-6 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${getBarColor(peakPercent)}`}
+                              style={{ width: `${Math.min(peakPercent, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Off-Peak Hour Progress */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-muted-foreground">Off-peak hour</span>
+                            <span className="text-xs font-medium">
+                              {simulatedOffPeakUsage.toFixed(1)}h/{plannedOffPeakWeekday.toFixed(1)}h
+                            </span>
+                          </div>
+                          <div className="h-6 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-300 ${getBarColor(offPeakPercent)}`}
+                              style={{ width: `${Math.min(offPeakPercent, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppShell>
   )
